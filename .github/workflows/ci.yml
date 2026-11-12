@@ -1,0 +1,25 @@
+name: ci
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Check the web UI
+        run: make check-web
+      - name: Build the hub with the web UI
+        run: make build
+      - name: Test
+        run: make test
