@@ -14,7 +14,12 @@
 
 package main
 
-import "testing"
+import (
+	"log/slog"
+	"testing"
+
+	"github.com/cybergarage/go-matter-hub/internal/hub"
+)
 
 func TestLoopbackOnly(t *testing.T) {
 	tests := []struct {
@@ -56,5 +61,33 @@ func TestParseOptionsDefaultsToLoopback(t *testing.T) {
 	}
 	if o.requireAuth {
 		t.Fatal("the access token is required by default on loopback")
+	}
+}
+
+func TestParseOptionsVendorIDAndLogLevel(t *testing.T) {
+	o, err := parseOptions(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.vendorID != hub.DefaultVendorID || o.logLevel != slog.LevelInfo {
+		t.Fatalf("defaults: vendor 0x%04X, level %v", o.vendorID, o.logLevel)
+	}
+	o, err = parseOptions([]string{"-vendor-id", "0x1217", "-log-level", "debug"})
+	if err != nil || o.vendorID != 0x1217 || o.logLevel != slog.LevelDebug {
+		t.Fatalf("options = %+v, %v", o, err)
+	}
+	if o, err = parseOptions([]string{"-vendor-id", "65521"}); err != nil || o.vendorID != 0xFFF1 {
+		t.Fatalf("decimal vendor ID: %+v, %v", o, err)
+	}
+	for _, args := range [][]string{
+		{"-vendor-id", "0"},
+		{"-vendor-id", "0xFFF5"},
+		{"-vendor-id", "apple"},
+		{"-log-level", "loud"},
+		{"extra"},
+	} {
+		if _, err := parseOptions(args); err == nil {
+			t.Errorf("%v accepted", args)
+		}
 	}
 }

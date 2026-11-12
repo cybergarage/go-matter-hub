@@ -6,12 +6,12 @@ One executable holds the daemon and the web UI. It is meant to run on a host on 
 
 ## Status
 
-This is the skeleton (phase B1): the daemon, the embedded web UI and the access control of the API. It does not talk to Matter devices yet.
+The hub keeps a fabric of its own, connects to the nodes commissioned into it, and follows their state by subscription (phase B2). There is no way yet to commission a device from the hub, to see the devices in the UI, or to control them.
 
 | Phase | Scope | Status |
 | --- | --- | --- |
 | B1 | Daemon, embedded Svelte UI, access control, CI | Done |
-| B2 | Connect to the commissioned nodes at startup and keep their state by subscription | Planned |
+| B2 | A fabric of the hub's own; connect to the commissioned nodes at startup and keep their state by subscription | Done |
 | B3 | Read API (nodes, state) and live updates over Server-Sent Events; device list | Planned |
 | B4 | Control API and UI: on/off, level, color | Planned |
 | B5 | Commissioning from the UI | Planned |
@@ -21,7 +21,7 @@ Automation and remote access are out of scope for now.
 
 ## Build and run
 
-Go 1.25 or later, and Node.js 22 or later with npm.
+Go 1.25 or later, and Node.js 22 or later with npm. The hub depends on go-matter v0.9.0.
 
 ```sh
 make build        # builds web/dist, then bin/go-matter-hub
@@ -31,10 +31,34 @@ bin/go-matter-hub # http://127.0.0.1:8580
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `-listen` | `127.0.0.1:8580` | Address to listen on |
-| `-data-dir` | `~/.go-matter-hub` | Directory for the access token and the hub's data |
+| `-data-dir` | `~/.go-matter-hub` | Directory for the hub's fabric, its commissioned nodes and the access token |
+| `-vendor-id` | `0xFFF1` | Administrator vendor ID of the fabric the hub creates at its first start |
+| `-log-level` | `info` | `debug`, `info`, `warn` or `error` |
 | `-allowed-host` | | Host name by which browsers may reach the hub; repeatable |
 | `-require-auth` | off | Require the access token on the loopback interface too |
 | `-version` | | Print the version |
+
+## Fabric and nodes
+
+The hub is a Matter controller with a fabric of its own. It does not use the store of `matterctl` or of another go-matter application, so a device commissioned with those is not a device of the hub.
+
+- **First start.** The hub creates its fabric in the data directory (`fabric.json`) and logs its ID. Later starts use that fabric; it is never replaced. A data directory which holds commissioned nodes but no fabric is refused.
+- **Nodes.** At every start the hub connects to each node commissioned into its fabric (`commissions/` in the data directory) and subscribes to all its attributes. It keeps the last value of every attribute in memory.
+- **Status.** A node is `connecting` until its first report, `online` while reports arrive, and `offline` when it cannot be reached or its subscription is lost. The hub keeps trying, waiting from 2 seconds up to 2 minutes between attempts, and keeps the last values meanwhile.
+- **Log.** A change of status and every changed attribute is logged:
+
+```
+level=INFO msg="node status" node=0000000016A5E84A status=online
+level=INFO msg="attribute changed" node=0000000016A5E84A endpoint=1 cluster=0x0006 attribute=0x0000 value=true
+```
+
+`fabric.json` holds the private keys of the fabric, unencrypted, readable by the owner only (mode 0600, in a directory of mode 0700). Whoever can read it can control every device of the hub. A key store is planned (B6).
+
+Until the hub can commission (B5), its data directory can be given a device with go-matter's `matterctl`, pointed at the same directory while the hub is stopped:
+
+```sh
+matterctl tui --store-dir ~/.go-matter-hub
+```
 
 ## Access control
 
@@ -77,12 +101,13 @@ All paths are under `/api/v1`. Errors are `{"error": {"code": "...", "message": 
 | `GET /session` | Public | `{"authRequired": bool, "authenticated": bool}` |
 | `POST /session` | Public | Body `{"token": "..."}`; starts a browser session |
 | `DELETE /session` | Public | Ends the browser session |
-| `GET /hub` | Token | `{"version": "...", "authRequired": bool}` |
+| `GET /hub` | Token | `{"version": "...", "authRequired": bool, "fabricId": "<16 hex digits>", "nodes": {"total": n, "online": n}}` |
 
 ## Development
 
 ```sh
 make test       # gofmt, go vet, go test -race
+go test -short ./...  # without the test which needs mDNS on the network
 make check-web  # svelte-check
 
 # UI with hot reload on http://localhost:5173, against a hub on its default address
@@ -103,6 +128,7 @@ go work init . ../go-matter
 | Path | Role |
 | --- | --- |
 | `cmd/go-matter-hub` | The daemon: flags, listener, shutdown |
+| `internal/hub` | The hub: its fabric, the sessions and subscriptions with the nodes, their state |
 | `internal/auth` | Access token file, bearer and session authentication |
 | `internal/server` | HTTP API, Host and Origin checks, web UI serving |
 | `web` | Svelte + Vite + TypeScript UI; `web/dist` is embedded |
