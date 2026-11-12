@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"testing/fstest"
 
@@ -240,11 +241,63 @@ func TestUIMissing(t *testing.T) {
 
 type fakeHub struct {
 	fabric hub.Fabric
-	nodes  []hub.Node
+
+	mu        sync.Mutex
+	nodes     []hub.Node
+	listeners map[int]func(hub.Change)
+	next      int
 }
 
-func (h fakeHub) Fabric() (hub.Fabric, bool) { return h.fabric, h.fabric.FabricID != 0 }
-func (h fakeHub) Nodes() []hub.Node          { return h.nodes }
+func (h *fakeHub) Fabric() (hub.Fabric, bool) { return h.fabric, h.fabric.FabricID != 0 }
+
+func (h *fakeHub) Nodes() []hub.Node {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]hub.Node(nil), h.nodes...)
+}
+
+func (h *fakeHub) Node(id uint64) (hub.Node, bool) {
+	for _, n := range h.Nodes() {
+		if n.ID == id {
+			return n, true
+		}
+	}
+	return hub.Node{}, false
+}
+
+func (h *fakeHub) Listen(fn func(hub.Change)) func() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.listeners == nil {
+		h.listeners = map[int]func(hub.Change){}
+	}
+	id := h.next
+	h.next++
+	h.listeners[id] = fn
+	return func() {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		delete(h.listeners, id)
+	}
+}
+
+func (h *fakeHub) listenerCount() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.listeners)
+}
+
+func (h *fakeHub) emit(c hub.Change) {
+	h.mu.Lock()
+	fns := make([]func(hub.Change), 0, len(h.listeners))
+	for _, fn := range h.listeners {
+		fns = append(fns, fn)
+	}
+	h.mu.Unlock()
+	for _, fn := range fns {
+		fn(c)
+	}
+}
 
 func TestHubInfo(t *testing.T) {
 	// Without a hub, the fields about it are left out.
@@ -262,7 +315,7 @@ func TestHubInfo(t *testing.T) {
 
 	s := New(Config{
 		Auth: auth.NewAuthenticator(testToken, true),
-		Hub: fakeHub{
+		Hub: &fakeHub{
 			fabric: hub.Fabric{FabricID: 0xB923078EEB190343},
 			nodes: []hub.Node{
 				{ID: 1, Status: hub.StatusOnline},

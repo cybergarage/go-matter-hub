@@ -14,6 +14,59 @@ export interface Session {
 export interface Hub {
   version: string;
   authRequired: boolean;
+  /** The hub's fabric, 16 hexadecimal digits. */
+  fabricId?: string;
+  nodes?: { total: number; online: number };
+}
+
+export type NodeStatus = 'connecting' | 'online' | 'offline';
+
+export interface Attribute {
+  endpoint: number;
+  cluster: number;
+  attribute: number;
+  /**
+   * The value the node reported. An integer beyond 2^53 is a string of
+   * decimal digits, an octet string a string of hexadecimal digits, and a
+   * structure an object keyed by field number.
+   */
+  value: unknown;
+  /** The Interaction Model status reported in place of a value. */
+  status?: number;
+  updatedAt: string;
+}
+
+export interface MatterNode {
+  /** 16 hexadecimal digits. */
+  id: string;
+  vendorId: number;
+  productId: number;
+  commissionedAt: string;
+  status: NodeStatus;
+  error?: string;
+  lastReportAt: string;
+  attributes: Attribute[];
+}
+
+export interface StatusEvent {
+  node: string;
+  status: NodeStatus;
+  error?: string;
+}
+
+export interface AttributesEvent {
+  node: string;
+  /** True when the attributes are the whole state of the node. */
+  priming: boolean;
+  attributes: Attribute[];
+}
+
+export interface EventHandlers {
+  nodes(nodes: MatterNode[]): void;
+  status(event: StatusEvent): void;
+  attributes(event: AttributesEvent): void;
+  /** The stream is connected (true) or is trying to connect again (false). */
+  connection(open: boolean): void;
 }
 
 export class ApiError extends Error {
@@ -50,3 +103,24 @@ export const getSession = () => request<Session>('GET', '/session');
 export const signIn = (token: string) => request<Session>('POST', '/session', { token });
 export const signOut = () => request<Session>('DELETE', '/session');
 export const getHub = () => request<Hub>('GET', '/hub');
+export const getNodes = () => request<{ nodes: MatterNode[] }>('GET', '/nodes');
+
+/**
+ * Opens the stream of node states. The browser connects again by itself when
+ * the stream breaks; every connection starts with all the nodes. The returned
+ * function closes the stream.
+ */
+export function openEvents(handlers: EventHandlers): () => void {
+  const source = new EventSource('/api/v1/events');
+  const on = <T>(name: string, handle: (data: T) => void) => {
+    source.addEventListener(name, (event) => {
+      handle(JSON.parse((event as MessageEvent<string>).data) as T);
+    });
+  };
+  on<{ nodes: MatterNode[] }>('nodes', (data) => handlers.nodes(data.nodes));
+  on<StatusEvent>('status', (data) => handlers.status(data));
+  on<AttributesEvent>('attributes', (data) => handlers.attributes(data));
+  source.onopen = () => handlers.connection(true);
+  source.onerror = () => handlers.connection(false);
+  return () => source.close();
+}

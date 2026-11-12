@@ -1,7 +1,9 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { ApiError, getHealth, getHub, getSession, signIn, signOut } from './api';
-  import type { Hub } from './api';
+  import { onDestroy, onMount } from 'svelte';
+  import { ApiError, getHealth, getHub, getSession, openEvents, signIn, signOut } from './api';
+  import type { Hub, MatterNode } from './api';
+  import DeviceCard from './DeviceCard.svelte';
+  import { withAttributes, withStatus } from './nodes';
 
   type View = 'loading' | 'unreachable' | 'signin' | 'home';
 
@@ -11,6 +13,49 @@
   let token = $state('');
   let busy = $state(false);
   let message = $state('');
+  let nodes = $state<MatterNode[]>([]);
+  // null until the stream has delivered the nodes once.
+  let live = $state<boolean | null>(null);
+  let closeEvents: (() => void) | null = null;
+
+  function stopEvents() {
+    closeEvents?.();
+    closeEvents = null;
+    live = null;
+  }
+
+  function startEvents() {
+    stopEvents();
+    closeEvents = openEvents({
+      nodes: (all) => {
+        nodes = all;
+        live = true;
+      },
+      status: (event) => (nodes = withStatus(nodes, event)),
+      attributes: (event) => (nodes = withAttributes(nodes, event)),
+      connection: (open) => {
+        if (open) {
+          return;
+        }
+        if (live !== null) {
+          live = false;
+        }
+        // The stream also breaks when the session has ended; the browser
+        // would then try again for ever.
+        getSession()
+          .then((session) => {
+            if (session.authRequired && !session.authenticated) {
+              stopEvents();
+              hub = null;
+              view = 'signin';
+            }
+          })
+          .catch(() => {
+            // The hub is unreachable; the stream keeps trying.
+          });
+      },
+    });
+  }
 
   async function load() {
     message = '';
@@ -18,13 +63,16 @@
       const [health, session] = await Promise.all([getHealth(), getSession()]);
       version = health.version;
       if (session.authRequired && !session.authenticated) {
+        stopEvents();
         hub = null;
         view = 'signin';
         return;
       }
       hub = await getHub();
       view = 'home';
+      startEvents();
     } catch (err) {
+      stopEvents();
       if (err instanceof ApiError && err.status === 401) {
         hub = null;
         view = 'signin';
@@ -54,6 +102,7 @@
   }
 
   async function leave() {
+    stopEvents();
     busy = true;
     try {
       await signOut();
@@ -66,6 +115,7 @@
   }
 
   onMount(load);
+  onDestroy(stopEvents);
 </script>
 
 <header>
@@ -114,11 +164,31 @@
       </form>
     </section>
   {:else}
-    <section class="card">
-      <div class="status"><span class="dot" aria-hidden="true"></span> Hub is running</div>
-      <h2>Devices</h2>
-      <p class="muted">No devices yet. Pairing and device control arrive in the next phases.</p>
-    </section>
+    <div class="status" role="status">
+      {#if live === false}
+        <span class="dot lost" aria-hidden="true"></span> Connection to the hub lost. Trying again…
+      {:else}
+        <span class="dot" aria-hidden="true"></span> Hub is running
+        {#if hub?.fabricId}<span class="fabric">· Fabric {hub.fabricId}</span>{/if}
+      {/if}
+    </div>
+    <h2>Devices</h2>
+    {#if live === null}
+      <p class="muted">Loading devices…</p>
+    {:else if nodes.length === 0}
+      <section class="card">
+        <p class="muted last">
+          No devices yet. The hub cannot commission a device from here yet; see the README for how
+          to add one with <code>matterctl</code>.
+        </p>
+      </section>
+    {:else}
+      <div class="devices">
+        {#each nodes as node (node.id)}
+          <DeviceCard {node} />
+        {/each}
+      </div>
+    {/if}
   {/if}
 </main>
 
@@ -205,10 +275,32 @@
   }
 
   .dot {
+    flex: none;
     width: 0.55rem;
     height: 0.55rem;
     border-radius: 50%;
     background: var(--ok);
+  }
+
+  .dot.lost {
+    background: var(--danger);
+  }
+
+  .fabric {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.8rem;
+    overflow-wrap: anywhere;
+  }
+
+  .devices {
+    display: grid;
+    /* minmax(0, …) lets a card be narrower than a wide table inside it. */
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.9rem;
+  }
+
+  .muted.last {
+    margin: 0;
   }
 
   form {
