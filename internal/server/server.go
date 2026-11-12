@@ -19,6 +19,7 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"mime"
@@ -27,6 +28,7 @@ import (
 	"strings"
 
 	"github.com/cybergarage/go-matter-hub/internal/auth"
+	"github.com/cybergarage/go-matter-hub/internal/hub"
 	"github.com/cybergarage/go-matter-hub/internal/version"
 )
 
@@ -39,21 +41,33 @@ type Config struct {
 	// AllowedHosts are the host names, besides localhost and IP address
 	// literals, which requests may use to reach the hub.
 	AllowedHosts []string
+	// Hub is the Matter hub the API reports on; nil serves the API
+	// without one.
+	Hub HubState
 	// UI is the built web UI (index.html at its root). When it has no
 	// index.html, the server answers with a notice instead.
 	UI fs.FS
 }
 
+// HubState is what the API reads from the hub.
+type HubState interface {
+	// Fabric returns the fabric of the hub; ok is false before it started.
+	Fabric() (fabric hub.Fabric, ok bool)
+	// Nodes returns the state of every commissioned node.
+	Nodes() []hub.Node
+}
+
 // Server serves the API and the web UI.
 type Server struct {
 	auth    *auth.Authenticator
+	hub     HubState
 	ui      fs.FS
 	handler http.Handler
 }
 
 // New returns a Server.
 func New(cfg Config) *Server {
-	s := &Server{auth: cfg.Auth, ui: cfg.UI}
+	s := &Server{auth: cfg.Auth, hub: cfg.Hub, ui: cfg.UI}
 
 	mux := http.NewServeMux()
 	// Public: what a page needs before the user has signed in.
@@ -198,10 +212,33 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 type hubResponse struct {
 	Version      string `json:"version"`
 	AuthRequired bool   `json:"authRequired"`
+	// FabricID is the fabric of the hub as 16 hexadecimal digits; a JSON
+	// number cannot hold a 64-bit ID exactly.
+	FabricID string        `json:"fabricId,omitempty"`
+	Nodes    *nodesSummary `json:"nodes,omitempty"`
+}
+
+type nodesSummary struct {
+	Total  int `json:"total"`
+	Online int `json:"online"`
 }
 
 func (s *Server) handleHub(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, hubResponse{Version: version.Version, AuthRequired: s.auth.Required()})
+	res := hubResponse{Version: version.Version, AuthRequired: s.auth.Required()}
+	if s.hub != nil {
+		if fabric, ok := s.hub.Fabric(); ok {
+			res.FabricID = fmt.Sprintf("%016X", fabric.FabricID)
+		}
+		summary := nodesSummary{}
+		for _, n := range s.hub.Nodes() {
+			summary.Total++
+			if n.Status == hub.StatusOnline {
+				summary.Online++
+			}
+		}
+		res.Nodes = &summary
+	}
+	writeJSON(w, http.StatusOK, res)
 }
 
 const uiMissing = `<!doctype html>

@@ -27,11 +27,13 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/cybergarage/go-matter-hub/internal/auth"
+	"github.com/cybergarage/go-matter-hub/internal/hub"
 	"github.com/cybergarage/go-matter-hub/internal/server"
 	"github.com/cybergarage/go-matter-hub/internal/version"
 	"github.com/cybergarage/go-matter-hub/web"
@@ -54,6 +56,8 @@ type options struct {
 	allowedHosts hostList
 	requireAuth  bool
 	showVersion  bool
+	vendorID     uint16
+	logLevel     slog.Level
 }
 
 func parseOptions(args []string) (options, error) {
@@ -61,7 +65,9 @@ func parseOptions(args []string) (options, error) {
 	home, _ := os.UserHomeDir()
 	fs := flag.NewFlagSet("go-matter-hub", flag.ContinueOnError)
 	fs.StringVar(&o.listen, "listen", defaultListen, "address to listen on; an address other than loopback always requires the access token")
-	fs.StringVar(&o.dataDir, "data-dir", filepath.Join(home, defaultDataDir), "directory for the access token and the hub's data")
+	fs.StringVar(&o.dataDir, "data-dir", filepath.Join(home, defaultDataDir), "directory for the hub's own fabric, its commissioned nodes and the access token")
+	vendorID := fs.String("vendor-id", fmt.Sprintf("0x%04X", hub.DefaultVendorID), "administrator vendor ID of the fabric the hub creates at its first start")
+	logLevel := fs.String("log-level", "info", "log level: debug, info, warn or error")
 	fs.Var(&o.allowedHosts, "allowed-host", "host name by which browsers may reach the hub (repeatable); IP addresses and localhost are always allowed")
 	fs.BoolVar(&o.requireAuth, "require-auth", false, "require the access token on the loopback interface too")
 	fs.BoolVar(&o.showVersion, "version", false, "print the version and exit")
@@ -70,6 +76,15 @@ func parseOptions(args []string) (options, error) {
 	}
 	if fs.NArg() != 0 {
 		return o, fmt.Errorf("unexpected argument: %s", fs.Arg(0))
+	}
+	// Base 0: 0x-prefixed hexadecimal, or decimal.
+	id, err := strconv.ParseUint(*vendorID, 0, 16)
+	if err != nil || id == 0 || id > 0xFFF4 {
+		return o, fmt.Errorf("invalid -vendor-id %q: expected 0x0001..0xFFF4", *vendorID)
+	}
+	o.vendorID = uint16(id)
+	if err := o.logLevel.UnmarshalText([]byte(*logLevel)); err != nil {
+		return o, fmt.Errorf("invalid -log-level %q", *logLevel)
 	}
 	return o, nil
 }
@@ -117,6 +132,8 @@ func run(args []string) error {
 		return nil
 	}
 
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: o.logLevel})))
+
 	loopback, err := loopbackOnly(o.listen)
 	if err != nil {
 		return err
@@ -139,6 +156,24 @@ func run(args []string) error {
 		slog.Info("listening on loopback only; the access token is not required")
 	}
 
+	// The hub keeps a fabric of its own in the data directory; it does not
+	// use the store of matterctl or of another go-matter application.
+	h, err := hub.New(hub.Config{
+		Controller: hub.NewMatterController(o.dataDir),
+		VendorID:   o.vendorID,
+	})
+	if err != nil {
+		return err
+	}
+	if err := h.Start(); err != nil {
+		return err
+	}
+	defer func() {
+		if err := h.Stop(); err != nil {
+			slog.Warn("stopping the hub", "error", err)
+		}
+	}()
+
 	ui, err := web.Dist()
 	if err != nil {
 		return err
@@ -147,6 +182,7 @@ func run(args []string) error {
 		Handler: server.New(server.Config{
 			Auth:         auth.NewAuthenticator(token, authRequired),
 			AllowedHosts: hostNames(o.listen, o.allowedHosts),
+			Hub:          h,
 			UI:           ui,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,

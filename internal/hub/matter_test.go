@@ -1,0 +1,211 @@
+// Copyright (C) 2026 The go-matter-hub Authors. All rights reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//    http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package hub
+
+import (
+	"context"
+	"errors"
+	"io"
+	"log/slog"
+	"testing"
+	"time"
+
+	"github.com/cybergarage/go-matter/matter"
+	"github.com/cybergarage/go-matter/matter/ble"
+	"github.com/cybergarage/go-matter/matter/credentials/testcreds"
+	"github.com/cybergarage/go-matter/matter/device"
+	"github.com/cybergarage/go-matter/matter/device/cluster"
+	"github.com/cybergarage/go-matter/matter/encoding"
+	"github.com/cybergarage/go-matter/matter/protocol/im"
+	"github.com/cybergarage/go-matter/matter/store"
+	"github.com/cybergarage/go-matter/matter/types"
+)
+
+const (
+	// The setup passcode and discriminator of the Matter SDK's examples,
+	// and the manual pairing code which stands for the two.
+	lightPasscode      = 20202021
+	lightDiscriminator = 3840
+	lightPairingCode   = "34970112332"
+
+	lightEndpoint  = 1
+	onOffCluster   = 0x0006
+	onOffAttribute = 0x0000
+
+	descriptorCluster = 0x001D
+)
+
+// noBLE is a BLE central which finds nothing: the test commissions over IP.
+type noBLE struct{}
+
+func (noBLE) DiscoveredDevices() []ble.Device { return nil }
+
+func (noBLE) LookupDeviceByDiscriminator(any) (ble.Device, error) {
+	return nil, errors.New("no BLE devices")
+}
+
+func (noBLE) Scan(context.Context, ...ble.ScannerOption) error { return nil }
+
+func onOffValue(n Node) (value any, ok bool) {
+	for _, a := range n.Attributes {
+		if a.Endpoint == lightEndpoint && a.Cluster == onOffCluster && a.Attribute == onOffAttribute {
+			return a.Value, true
+		}
+	}
+	return nil, false
+}
+
+// TestHubFollowsAGoMatterLight runs the hub against an On/Off Light built
+// with go-matter's device role, over mDNS and UDP on this host: the hub
+// creates its fabric in a new store, a commissioner on the same store
+// commissions the light, and a hub started on that store connects to the
+// light and follows its OnOff attribute.
+func TestHubFollowsAGoMatterLight(t *testing.T) {
+	if testing.Short() {
+		t.Skip("uses mDNS on the network; skipped with -short")
+	}
+	dir := t.TempDir()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	noBLECentral := matter.WithCommissionerCentral(noBLE{})
+
+	// A first start creates the fabric of the hub.
+	first, err := New(Config{Controller: NewMatterController(dir, noBLECentral), Logger: logger})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Start(); err != nil {
+		t.Skipf("the hub cannot start here: %v", err)
+	}
+	fabric, ok := first.Fabric()
+	if !ok || fabric.FabricID == 0 || fabric.CompressedFabricID == 0 || fabric.AdminVendorID != DefaultVendorID {
+		t.Fatalf("fabric = %+v, %v", fabric, ok)
+	}
+	if err := first.Stop(); err != nil {
+		t.Fatal(err)
+	}
+
+	// The light.
+	attestation, err := testcreds.AttestationProvider()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dev, err := device.New(
+		device.WithDeviceStore(store.NewMemDeviceStore()),
+		device.WithPasscode(types.Passcode(lightPasscode)),
+		device.WithAddress(":0"),
+		device.WithDiscriminator(lightDiscriminator),
+		device.WithVendorID(testcreds.VendorID),
+		device.WithProductID(testcreds.ProductID),
+		device.WithAttestationProvider(attestation),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ep, err := dev.AddEndpoint(lightEndpoint, device.OnOffLightDeviceType)
+	if err != nil {
+		t.Fatal(err)
+	}
+	light := cluster.NewOnOff()
+	light.Register(ep)
+	if err := dev.Start(); err != nil {
+		t.Skipf("the device cannot advertise here: %v", err)
+	}
+	defer func() { _ = dev.Stop() }()
+
+	// Commission the light into the hub's fabric, as the hub will do from
+	// its UI later.
+	cmr := matter.NewCommissioner(matter.WithCommissionerStoreDir(dir), noBLECentral)
+	if err := cmr.Start(); err != nil {
+		t.Skipf("the commissioner cannot start here: %v", err)
+	}
+	code, err := encoding.NewPairingCodeFromString(lightPairingCode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), matter.DefaultCommissioningTimeout)
+	cme, err := cmr.Commission(ctx, code)
+	cancel()
+	if err != nil {
+		_ = cmr.Stop()
+		t.Fatalf("Commission() error = %v", err)
+	}
+	nodeID, ok := cme.NodeID()
+	if !ok {
+		t.Fatal("commissioning returned no node ID")
+	}
+	if err := cmr.Stop(); err != nil {
+		t.Fatal(err)
+	}
+
+	// The hub, started on the store, finds the light and follows it.
+	//
+	// The device role of go-matter does not split a report into chunks yet,
+	// and the report of every attribute of a node does not fit one message.
+	// The test therefore subscribes to the endpoint of the light only; the
+	// hub itself subscribes to everything.
+	ctl := NewMatterController(dir, noBLECentral)
+	endpoint := im.EndpointID(lightEndpoint)
+	ctl.paths = []im.AttributeRequestPath{{Endpoint: &endpoint}}
+	h, err := New(Config{Controller: ctl, Logger: logger, RetryMin: 200 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = h.Stop() }()
+	if again, _ := h.Fabric(); again != fabric {
+		t.Fatalf("the fabric changed: %+v, was %+v", again, fabric)
+	}
+	nodes := h.Nodes()
+	if len(nodes) != 1 || nodes[0].ID != uint64(nodeID) || nodes[0].VendorID != testcreds.VendorID {
+		t.Fatalf("nodes = %+v", nodes)
+	}
+
+	wait := func(what string, cond func(Node) bool) Node {
+		t.Helper()
+		deadline := time.Now().Add(60 * time.Second)
+		for {
+			n, _ := h.Node(uint64(nodeID))
+			if cond(n) {
+				return n
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("%s: status %s, error %q, %d attributes", what, n.Status, n.Error, len(n.Attributes))
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+	n := wait("online", func(n Node) bool { return n.Status == StatusOnline })
+	if v, ok := onOffValue(n); !ok || v != false {
+		t.Fatalf("OnOff after the priming report = %v, %v", v, ok)
+	}
+	// The wildcards report the other clusters of the endpoint too.
+	clusters := map[uint32]bool{}
+	for _, a := range n.Attributes {
+		if a.Endpoint != lightEndpoint {
+			t.Fatalf("attribute of endpoint %d reported", a.Endpoint)
+		}
+		clusters[a.Cluster] = true
+	}
+	if len(clusters) < 2 || !clusters[descriptorCluster] {
+		t.Fatalf("clusters reported = %v", clusters)
+	}
+
+	light.Set(true)
+	wait("OnOff true", func(n Node) bool { v, _ := onOffValue(n); return v == true })
+	light.Set(false)
+	wait("OnOff false", func(n Node) bool { v, _ := onOffValue(n); return v == false })
+}
