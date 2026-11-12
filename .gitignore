@@ -6,10 +6,6 @@
 !/web/dist/.gitkeep
 /web/node_modules/
 
-# A local workspace which points at a go-matter checkout
-go.work
-go.work.sum
-
 *.test
 *.out
 .DS_Store
