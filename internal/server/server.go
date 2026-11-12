@@ -17,6 +17,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,6 +27,7 @@ import (
 	"net/http"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/cybergarage/go-matter-hub/internal/auth"
 	"github.com/cybergarage/go-matter-hub/internal/hub"
@@ -55,19 +57,30 @@ type HubState interface {
 	Fabric() (fabric hub.Fabric, ok bool)
 	// Nodes returns the state of every commissioned node.
 	Nodes() []hub.Node
+	// Node returns the state of a node.
+	Node(id uint64) (hub.Node, bool)
+	// Listen registers a function called for every change of a node's
+	// state, and returns a function which removes it.
+	Listen(fn func(hub.Change)) (remove func())
 }
 
 // Server serves the API and the web UI.
 type Server struct {
-	auth    *auth.Authenticator
-	hub     HubState
-	ui      fs.FS
-	handler http.Handler
+	auth *auth.Authenticator
+	hub  HubState
+
+	// streams is done when the event streams have to end.
+	streams      context.Context
+	closeStreams context.CancelFunc
+	heartbeat    time.Duration
+	ui           fs.FS
+	handler      http.Handler
 }
 
 // New returns a Server.
 func New(cfg Config) *Server {
-	s := &Server{auth: cfg.Auth, hub: cfg.Hub, ui: cfg.UI}
+	s := &Server{auth: cfg.Auth, hub: cfg.Hub, ui: cfg.UI, heartbeat: streamHeartbeat}
+	s.streams, s.closeStreams = newStreams()
 
 	mux := http.NewServeMux()
 	// Public: what a page needs before the user has signed in.
@@ -77,6 +90,9 @@ func New(cfg Config) *Server {
 	mux.HandleFunc("DELETE /api/v1/session", s.handleLogout)
 	// Protected.
 	mux.Handle("GET /api/v1/hub", s.protected(s.handleHub))
+	mux.Handle("GET /api/v1/nodes", s.protected(s.handleNodes))
+	mux.Handle("GET /api/v1/nodes/{id}", s.protected(s.handleNode))
+	mux.Handle("GET /api/v1/events", s.protected(s.handleEvents))
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "no such API")
 	})

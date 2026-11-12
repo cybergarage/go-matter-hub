@@ -178,17 +178,22 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
+	api := server.New(server.Config{
+		Auth:         auth.NewAuthenticator(token, authRequired),
+		AllowedHosts: hostNames(o.listen, o.allowedHosts),
+		Hub:          h,
+		UI:           ui,
+	})
 	srv := &http.Server{
-		Handler: server.New(server.Config{
-			Auth:         auth.NewAuthenticator(token, authRequired),
-			AllowedHosts: hostNames(o.listen, o.allowedHosts),
-			Hub:          h,
-			UI:           ui,
-		}),
+		Handler:           api,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 	}
+
+	// The event streams stay open as long as their clients do; they are
+	// ended first, or Shutdown would wait for them.
+	srv.RegisterOnShutdown(api.CloseStreams)
 
 	ln, err := net.Listen("tcp", o.listen)
 	if err != nil {

@@ -6,13 +6,13 @@ One executable holds the daemon and the web UI. It is meant to run on a host on 
 
 ## Status
 
-The hub keeps a fabric of its own, connects to the nodes commissioned into it, and follows their state by subscription (phase B2). There is no way yet to commission a device from the hub, to see the devices in the UI, or to control them.
+The hub keeps a fabric of its own, connects to the nodes commissioned into it, follows their state by subscription, and shows the devices and their state, live, in the web UI and over the API (phase B3). There is no way yet to commission a device from the hub or to control one.
 
 | Phase | Scope | Status |
 | --- | --- | --- |
 | B1 | Daemon, embedded Svelte UI, access control, CI | Done |
 | B2 | A fabric of the hub's own; connect to the commissioned nodes at startup and keep their state by subscription | Done |
-| B3 | Read API (nodes, state) and live updates over Server-Sent Events; device list | Planned |
+| B3 | Read API (nodes, state) and live updates over Server-Sent Events; device list | Done |
 | B4 | Control API and UI: on/off, level, color | Planned |
 | B5 | Commissioning from the UI | Planned |
 | B6 | systemd unit, configuration file, key store | Planned |
@@ -101,7 +101,46 @@ All paths are under `/api/v1`. Errors are `{"error": {"code": "...", "message": 
 | `GET /session` | Public | `{"authRequired": bool, "authenticated": bool}` |
 | `POST /session` | Public | Body `{"token": "..."}`; starts a browser session |
 | `DELETE /session` | Public | Ends the browser session |
+| `GET /nodes` | Token | `{"nodes": [node, ...]}`, ordered by node ID |
+| `GET /nodes/{id}` | Token | One node |
+| `GET /events` | Token | The state of the nodes as Server-Sent Events; see below |
 | `GET /hub` | Token | `{"version": "...", "authRequired": bool, "fabricId": "<16 hex digits>", "nodes": {"total": n, "online": n}}` |
+
+A node:
+
+```json
+{
+  "id": "0000000016A5E84A",
+  "vendorId": 4631,
+  "productId": 1,
+  "commissionedAt": "2026-11-12T09:00:00Z",
+  "status": "online",
+  "lastReportAt": "2026-11-12T14:20:31.2Z",
+  "attributes": [
+    {"endpoint": 1, "cluster": 6, "attribute": 0, "value": true, "updatedAt": "2026-11-12T14:20:31.2Z"}
+  ]
+}
+```
+
+- `id` is 16 hexadecimal digits, because a JSON number cannot hold a 64-bit ID exactly.
+- `status` is `connecting`, `online` or `offline`; `error` says why a node is offline.
+- `attributes` are the last values the node reported, by endpoint, cluster and attribute ID. A value is what the node sent, without the types of the data model applied: a boolean, a number, a string, `null`, an array for a list, and an object keyed by field number for a structure. An integer beyond 2^53 is a string of decimal digits, and an octet string a string of hexadecimal digits. An attribute the node refused to report has `status`, the Interaction Model status code, instead of a value.
+
+### Events
+
+`GET /events` is a `text/event-stream`. The session cookie authenticates a browser's `EventSource`; a script sends the bearer token.
+
+| Event | Data | Meaning |
+| --- | --- | --- |
+| `nodes` | `{"nodes": [node, ...]}` | Sent first on every connection: all the nodes |
+| `status` | `{"node": id, "status": "...", "error": "..."}` | A node's status changed |
+| `attributes` | `{"node": id, "priming": bool, "attributes": [...]}` | Attributes changed. With `priming` true they are the whole state of the node and replace what the client holds |
+
+A comment line is sent every 15 seconds on an idle stream. A client which falls 256 events behind is disconnected; it connects again and starts from a fresh `nodes` event.
+
+```sh
+curl -N http://127.0.0.1:8580/api/v1/events
+```
 
 ## Development
 
@@ -138,7 +177,7 @@ GOWORK=off go build ./... && GOWORK=off go test ./...
 | `cmd/go-matter-hub` | The daemon: flags, listener, shutdown |
 | `internal/hub` | The hub: its fabric, the sessions and subscriptions with the nodes, their state |
 | `internal/auth` | Access token file, bearer and session authentication |
-| `internal/server` | HTTP API, Host and Origin checks, web UI serving |
+| `internal/server` | HTTP API, event stream, Host and Origin checks, web UI serving |
 | `web` | Svelte + Vite + TypeScript UI; `web/dist` is embedded |
 
 ## License
