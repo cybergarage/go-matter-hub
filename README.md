@@ -92,10 +92,18 @@ cd web && npm install && npm run dev
 
 The Go binary embeds `web/dist`. Without a built UI the hub still builds and serves the API; the UI path answers with a notice.
 
-To develop against a local go-matter checkout once the hub depends on it, create a `go.work` (ignored by git):
+### Developing against a local go-matter
+
+Check this repository out next to go-matter and add it to the Go workspace of the parent directory, so that a build here uses the go-matter sources beside it:
 
 ```sh
-go work init . ../go-matter
+cd .. && go work use ./go-matter-hub
+```
+
+CI and releases do not use the workspace: they build against the go-matter version in `go.mod`. Before opening a pull request, check that the hub also builds that way:
+
+```sh
+GOWORK=off go build ./... && GOWORK=off go test ./...
 ```
 
 ## Layout
