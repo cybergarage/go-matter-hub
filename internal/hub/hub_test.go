@@ -114,14 +114,30 @@ type fakeSession struct {
 	nodeID     uint64
 	subscribed chan struct{}
 
-	mu       sync.Mutex
-	handler  func(Report)
-	onError  func(error)
-	done     chan struct{}
-	err      error
-	ended    bool
-	closed   bool
-	subClose bool
+	mu        sync.Mutex
+	handler   func(Report)
+	onError   func(error)
+	done      chan struct{}
+	err       error
+	ended     bool
+	closed    bool
+	subClose  bool
+	invokes   []invokeCall
+	answer    InvokeStatus
+	invokeErr error
+}
+
+type invokeCall struct {
+	endpoint         uint16
+	cluster, command uint32
+	fields           []byte
+}
+
+func (s *fakeSession) Invoke(endpoint uint16, cluster, command uint32, fields []byte) (InvokeStatus, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.invokes = append(s.invokes, invokeCall{endpoint, cluster, command, fields})
+	return s.answer, s.invokeErr
 }
 
 func (s *fakeSession) SubscribeAll(_ context.Context, handler func(Report), onError func(error)) (Subscription, error) {

@@ -44,7 +44,8 @@ const (
 	onOffCluster   = 0x0006
 	onOffAttribute = 0x0000
 
-	descriptorCluster = 0x001D
+	descriptorCluster   = 0x001D
+	levelControlCluster = 0x0008
 )
 
 // noBLE is a BLE central which finds nothing: the test commissions over IP.
@@ -208,4 +209,26 @@ func TestHubFollowsAGoMatterLight(t *testing.T) {
 	wait("OnOff true", func(n Node) bool { v, _ := onOffValue(n); return v == true })
 	light.Set(false)
 	wait("OnOff false", func(n Node) bool { v, _ := onOffValue(n); return v == false })
+
+	// The hub controls the light over the same session, and sees the new
+	// state through its subscription.
+	if err := h.Invoke(uint64(nodeID), Command{Endpoint: lightEndpoint, Cluster: onOffCluster, Command: 0x01}); err != nil {
+		t.Fatalf("On: %v", err)
+	}
+	wait("OnOff true after On", func(n Node) bool { v, _ := onOffValue(n); return v == true })
+	if !light.On() {
+		t.Fatal("the light is off after On")
+	}
+	if err := h.Invoke(uint64(nodeID), Command{Endpoint: lightEndpoint, Cluster: onOffCluster, Command: 0x02}); err != nil {
+		t.Fatalf("Toggle: %v", err)
+	}
+	wait("OnOff false after Toggle", func(n Node) bool { v, _ := onOffValue(n); return v == false })
+
+	// The light has no Level Control cluster: the node refuses the command.
+	err = h.Invoke(uint64(nodeID), Command{Endpoint: lightEndpoint, Cluster: levelControlCluster, Command: 0x04, Fields: map[string]any{
+		"Level": 127, "TransitionTime": 0, "OptionsMask": 0, "OptionsOverride": 0,
+	}})
+	if !errors.Is(err, ErrCommandFailed) {
+		t.Fatalf("Level Control on an On/Off light: %v", err)
+	}
 }

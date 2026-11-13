@@ -88,7 +88,23 @@ export interface EndpointSummary {
   level?: number;
   /** Color temperature in kelvin. */
   kelvin?: number;
+  /** The color temperature range in kelvin, when the light sets one. */
+  kelvinRange?: { min: number; max: number };
+  /** The same range in mireds, as the light takes it. */
+  miredsRange?: { min: number; max: number };
+  /** Hue (0 to 360) and saturation (0 to 1), when the light sets them. */
+  hue?: number;
+  saturation?: number;
+  /** Whether the light takes a hue and saturation. */
+  hueSaturation: boolean;
+  /** What the light shows now: a hue and saturation, or a color temperature. */
+  colorMode?: 'hs' | 'xy' | 'temperature';
 }
+
+/** Rounds kelvin to a multiple of 50, as a light's range is shown. */
+const roundKelvin = (k: number) => Math.round(k / 50) * 50;
+
+export const kelvinToMireds = (k: number) => Math.round(1_000_000 / k);
 
 function deviceType(node: MatterNode, endpoint: number): string {
   const list = find(node, endpoint, DESCRIPTOR, 0)?.value;
@@ -107,7 +123,7 @@ function deviceType(node: MatterNode, endpoint: number): string {
 export function endpoints(node: MatterNode): EndpointSummary[] {
   const ids = [...new Set(node.attributes.map((a) => a.endpoint))].filter((id) => id !== 0).sort((a, b) => a - b);
   return ids.map((endpoint) => {
-    const summary: EndpointSummary = { endpoint, type: deviceType(node, endpoint) };
+    const summary: EndpointSummary = { endpoint, type: deviceType(node, endpoint), hueSaturation: false };
     const on = find(node, endpoint, ON_OFF, 0)?.value;
     if (typeof on === 'boolean') {
       summary.on = on;
@@ -117,10 +133,38 @@ export function endpoints(node: MatterNode): EndpointSummary[] {
     if (typeof level === 'number') {
       summary.level = Math.round((Math.min(level, 254) / 254) * 100);
     }
+    const color = (attribute: number) => {
+      const value = find(node, endpoint, COLOR_CONTROL, attribute)?.value;
+      return typeof value === 'number' ? value : undefined;
+    };
+    // ColorCapabilities: bit 0 hue and saturation, bit 4 color temperature.
+    // A light which does not report it is judged by its attributes.
+    const capabilities = color(0x400a);
+    const hasHue = capabilities !== undefined ? (capabilities & 0x01) !== 0 : color(0x0000) !== undefined;
+    const hasTemperature = capabilities !== undefined ? (capabilities & 0x10) !== 0 : color(0x0007) !== undefined;
     // ColorTemperatureMireds: a million divided by the kelvin.
-    const mireds = find(node, endpoint, COLOR_CONTROL, 7)?.value;
-    if (typeof mireds === 'number' && mireds > 0) {
-      summary.kelvin = Math.round(1_000_000 / mireds / 50) * 50;
+    const mireds = color(0x0007);
+    if (hasTemperature && mireds !== undefined && mireds > 0) {
+      summary.kelvin = roundKelvin(1_000_000 / mireds);
+    }
+    const minMireds = color(0x400b);
+    const maxMireds = color(0x400c);
+    if (hasTemperature && minMireds && maxMireds && minMireds < maxMireds) {
+      summary.kelvinRange = { min: roundKelvin(1_000_000 / maxMireds), max: roundKelvin(1_000_000 / minMireds) };
+      summary.miredsRange = { min: minMireds, max: maxMireds };
+    }
+    summary.hueSaturation = hasHue;
+    const hue = color(0x0000);
+    const saturation = color(0x0001);
+    if (hasHue && hue !== undefined && saturation !== undefined) {
+      // CurrentHue and CurrentSaturation run from 0 to 254.
+      summary.hue = Math.round((hue / 254) * 360);
+      summary.saturation = Math.min(saturation, 254) / 254;
+    }
+    // ColorMode: 0 hue and saturation, 1 xy, 2 color temperature.
+    const mode = color(0x0008);
+    if (mode === 0 || mode === 1 || mode === 2) {
+      summary.colorMode = (['hs', 'xy', 'temperature'] as const)[mode];
     }
     return summary;
   });

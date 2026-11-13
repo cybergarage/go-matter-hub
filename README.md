@@ -6,14 +6,14 @@ One executable holds the daemon and the web UI. It is meant to run on a host on 
 
 ## Status
 
-The hub keeps a fabric of its own, connects to the nodes commissioned into it, follows their state by subscription, and shows the devices and their state, live, in the web UI and over the API (phase B3). There is no way yet to commission a device from the hub or to control one.
+The hub keeps a fabric of its own, connects to the nodes commissioned into it, follows their state by subscription, shows the devices and their state, live, in the web UI and over the API, and controls them: on/off, brightness, white color temperature and color (phase B4). There is no way yet to commission a device from the hub.
 
 | Phase | Scope | Status |
 | --- | --- | --- |
 | B1 | Daemon, embedded Svelte UI, access control, CI | Done |
 | B2 | A fabric of the hub's own; connect to the commissioned nodes at startup and keep their state by subscription | Done |
 | B3 | Read API (nodes, state) and live updates over Server-Sent Events; device list | Done |
-| B4 | Control API and UI: on/off, level, color | Planned |
+| B4 | Control API and UI: on/off, level, color | Done |
 | B5 | Commissioning from the UI | Planned |
 | B6 | systemd unit, configuration file, key store | Planned |
 
@@ -21,7 +21,7 @@ Automation and remote access are out of scope for now.
 
 ## Build and run
 
-Go 1.25 or later, and Node.js 22 or later with npm. The hub depends on go-matter v0.9.0.
+Go 1.25 or later, and Node.js 22 or later with npm. The hub depends on go-matter v0.9.1.
 
 ```sh
 make build        # builds web/dist, then bin/go-matter-hub
@@ -104,6 +104,7 @@ All paths are under `/api/v1`. Errors are `{"error": {"code": "...", "message": 
 | `GET /nodes` | Token | `{"nodes": [node, ...]}`, ordered by node ID |
 | `GET /nodes/{id}` | Token | One node |
 | `GET /events` | Token | The state of the nodes as Server-Sent Events; see below |
+| `POST /nodes/{id}/commands` | Token | Invokes a command on a node; see below |
 | `GET /hub` | Token | `{"version": "...", "authRequired": bool, "fabricId": "<16 hex digits>", "nodes": {"total": n, "online": n}}` |
 
 A node:
@@ -142,6 +143,31 @@ A comment line is sent every 15 seconds on an idle stream. A client which falls 
 curl -N http://127.0.0.1:8580/api/v1/events
 ```
 
+### Commands
+
+`POST /nodes/{id}/commands` invokes a command of a cluster on an endpoint of a node:
+
+```sh
+curl -X POST -H 'Content-Type: application/json' \
+  -d '{"endpoint": 1, "cluster": 8, "command": 4, "fields": {"Level": 127, "TransitionTime": 5, "OptionsMask": 0, "OptionsOverride": 0}}' \
+  http://127.0.0.1:8580/api/v1/nodes/0000000016A5E84A/commands
+```
+
+- `cluster` and `command` are the numeric IDs; `fields` are the command's fields by the names of the data model, and may be left out for a command without fields.
+- The fields are checked against the definition of the command in go-matter's data model catalog and encoded from it. The catalog has the On/Off, Level Control, Color Control, Door Lock, Basic Information, Descriptor and Temperature Measurement clusters; commands of other clusters are refused. Lists, structures and floating point fields are not supported, nor commands which need a timed invoke.
+- The command is sent over the session the hub keeps with the node. The answer is `{"ok": true}` once the node has accepted it; the new state arrives over `GET /events`, as every other change does.
+
+| Status | Code | Meaning |
+| --- | --- | --- |
+| 400 | `unsupported_command` | The command is not in the catalog, or needs a timed invoke |
+| 400 | `invalid_fields` | A field is missing, unknown, of the wrong type or out of range |
+| 404 | `not_found` | No such node |
+| 409 | `node_offline` | The hub has no session with the node right now |
+| 502 | `command_failed` | The node refused the command; the message names the Interaction Model status |
+| 504 | `node_error` | The node did not answer, or the session failed |
+
+The web UI uses On and Off (On/Off cluster), MoveToLevelWithOnOff (Level Control), MoveToColorTemperature and MoveToHueAndSaturation (Color Control), with a half-second transition. It offers the color temperature and the colors only when the light's ColorCapabilities say it takes them.
+
 ## Development
 
 ```sh
@@ -175,7 +201,7 @@ GOWORK=off go build ./... && GOWORK=off go test ./...
 | Path | Role |
 | --- | --- |
 | `cmd/go-matter-hub` | The daemon: flags, listener, shutdown |
-| `internal/hub` | The hub: its fabric, the sessions and subscriptions with the nodes, their state |
+| `internal/hub` | The hub: its fabric, the sessions and subscriptions with the nodes, their state, and the commands sent to them |
 | `internal/auth` | Access token file, bearer and session authentication |
 | `internal/server` | HTTP API, event stream, Host and Origin checks, web UI serving |
 | `web` | Svelte + Vite + TypeScript UI; `web/dist` is embedded |
