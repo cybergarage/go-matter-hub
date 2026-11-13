@@ -73,11 +73,21 @@ func (s *Server) handleNodes(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, s.nodes())
 }
 
-func (s *Server) handleNode(w http.ResponseWriter, r *http.Request) {
+// nodeID reads the node ID of the request path, and answers the request
+// when it is malformed.
+func nodeID(w http.ResponseWriter, r *http.Request) (uint64, bool) {
 	text := r.PathValue("id")
 	id, err := strconv.ParseUint(text, 16, 64)
 	if err != nil || len(text) != 16 {
 		writeError(w, http.StatusBadRequest, "bad_request", "a node ID is 16 hexadecimal digits")
+		return 0, false
+	}
+	return id, true
+}
+
+func (s *Server) handleNode(w http.ResponseWriter, r *http.Request) {
+	id, ok := nodeID(w, r)
+	if !ok {
 		return
 	}
 	if s.hub != nil {

@@ -124,3 +124,18 @@ export function openEvents(handlers: EventHandlers): () => void {
   source.onerror = () => handlers.connection(false);
   return () => source.close();
 }
+
+export interface Command {
+  endpoint: number;
+  cluster: number;
+  command: number;
+  /** Field values by name, as the data model names them. */
+  fields?: Record<string, number | boolean | string | null>;
+}
+
+/**
+ * Invokes a command on a node. The new state arrives over the event stream,
+ * as any other change does.
+ */
+export const invoke = (node: string, command: Command) =>
+  request<{ ok: boolean }>('POST', `/nodes/${node}/commands`, command);

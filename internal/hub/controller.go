@@ -65,6 +65,9 @@ type Session interface {
 	// the current value of every attribute; onError receives the errors of
 	// a subscription which is being re-established.
 	SubscribeAll(ctx context.Context, handler func(Report), onError func(error)) (Subscription, error)
+	// Invoke invokes a command with its encoded CommandFields structure,
+	// and returns the status the node answered with.
+	Invoke(endpoint uint16, cluster, command uint32, fields []byte) (InvokeStatus, error)
 	// Close closes the session and its subscriptions.
 	Close() error
 }
@@ -78,6 +81,18 @@ type Subscription interface {
 	// Close ends the subscription.
 	Close() error
 }
+
+// InvokeStatus is the status a node answered an invoke with.
+// 10.7.17. InvokeResponseMessage.
+type InvokeStatus struct {
+	// IMStatus is the Interaction Model status; 0 is success.
+	IMStatus uint8 `json:"status"`
+	// ClusterStatus is the cluster-specific status, when the node gave one.
+	ClusterStatus uint8 `json:"clusterStatus,omitempty"`
+}
+
+// Success reports whether the command succeeded.
+func (s InvokeStatus) Success() bool { return s.IMStatus == 0 && s.ClusterStatus == 0 }
 
 // AttributePath locates an attribute on a node.
 type AttributePath struct {

@@ -225,6 +225,15 @@ type matterSession struct {
 
 func (s *matterSession) Close() error { return s.node.Close() }
 
+// Invoke invokes a command. 8.8. Invoke Interaction.
+func (s *matterSession) Invoke(endpoint uint16, cluster, command uint32, fields []byte) (InvokeStatus, error) {
+	res, err := s.node.Invoke(im.EndpointID(endpoint), im.ClusterID(cluster), im.CommandID(command), fields)
+	if err != nil {
+		return InvokeStatus{}, err
+	}
+	return InvokeStatus{IMStatus: res.Status.IMStatus, ClusterStatus: res.Status.ClusterStatus}, nil
+}
+
 // SubscribeAll subscribes to every attribute of every endpoint with a
 // wildcard path. 8.5. Subscribe Interaction.
 func (s *matterSession) SubscribeAll(ctx context.Context, handler func(Report), onError func(error)) (Subscription, error) {

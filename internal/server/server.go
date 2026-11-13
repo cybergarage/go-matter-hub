@@ -62,6 +62,8 @@ type HubState interface {
 	// Listen registers a function called for every change of a node's
 	// state, and returns a function which removes it.
 	Listen(fn func(hub.Change)) (remove func())
+	// Invoke invokes a command on a node.
+	Invoke(nodeID uint64, c hub.Command) error
 }
 
 // Server serves the API and the web UI.
@@ -93,6 +95,7 @@ func New(cfg Config) *Server {
 	mux.Handle("GET /api/v1/nodes", s.protected(s.handleNodes))
 	mux.Handle("GET /api/v1/nodes/{id}", s.protected(s.handleNode))
 	mux.Handle("GET /api/v1/events", s.protected(s.handleEvents))
+	mux.Handle("POST /api/v1/nodes/{id}/commands", s.protected(s.handleCommand))
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "no such API")
 	})
@@ -161,6 +164,8 @@ func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 	}
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBodyBytes))
 	dec.DisallowUnknownFields()
+	// Numbers stay exact, as json.Number, rather than float64.
+	dec.UseNumber()
 	if err := dec.Decode(v); err != nil {
 		writeError(w, http.StatusBadRequest, "bad_request", "malformed JSON body")
 		return false

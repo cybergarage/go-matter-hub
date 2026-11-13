@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { MatterNode } from './api';
+  import EndpointControls from './EndpointControls.svelte';
   import { clusterName, endpoints, formatValue, hex, nodeMaker, nodeName } from './nodes';
 
   let { node }: { node: MatterNode } = $props();
@@ -30,16 +31,7 @@
   {#if parts.length > 0}
     <ul class="endpoints">
       {#each parts as part (part.endpoint)}
-        <li>
-          <span class="type">{part.type || `Endpoint ${part.endpoint}`}</span>
-          <span class="values">
-            {#if part.on !== undefined}
-              <span class="pill" class:on={part.on}>{part.on ? 'On' : 'Off'}</span>
-            {/if}
-            {#if part.level !== undefined}<span class="value">{part.level}%</span>{/if}
-            {#if part.kelvin !== undefined}<span class="value">{part.kelvin} K</span>{/if}
-          </span>
-        </li>
+        <EndpointControls node={node.id} {part} online={node.status === 'online'} />
       {/each}
     </ul>
   {:else if node.status === 'connecting'}
@@ -139,53 +131,8 @@
     gap: 0.4rem;
   }
 
-  .endpoints li {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    padding: 0.5rem 0.7rem;
-    border-radius: 8px;
-    background: var(--bg);
-  }
-
-  .offline .endpoints li {
+  .offline .endpoints {
     opacity: 0.6;
-  }
-
-  .type {
-    font-size: 0.9rem;
-  }
-
-  .values {
-    flex: none;
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .value {
-    font-size: 0.9rem;
-    color: var(--muted);
-    white-space: nowrap;
-  }
-
-  .pill {
-    min-width: 2.6rem;
-    padding: 0.1rem 0.55rem;
-    border-radius: 999px;
-    border: 1px solid var(--line);
-    font-size: 0.8rem;
-    font-weight: 600;
-    text-align: center;
-    color: var(--muted);
-  }
-
-  .pill.on {
-    border-color: var(--accent);
-    background: var(--accent);
-    color: var(--accent-text);
   }
 
   .toggle {

@@ -37,7 +37,10 @@ type nodeWorker struct {
 	// the listeners are told of them in the order they happened.
 	reportMu sync.Mutex
 
-	mu           sync.Mutex
+	mu sync.Mutex
+	// sess is the session while the subscription on it is up; nil
+	// otherwise.
+	sess         Session
 	status       Status
 	err          string
 	lastReportAt time.Time
@@ -185,6 +188,15 @@ func (w *nodeWorker) session(ctx context.Context) (established bool, err error) 
 	}
 	defer sub.Close()
 
+	w.mu.Lock()
+	w.sess = sess
+	w.mu.Unlock()
+	defer func() {
+		w.mu.Lock()
+		w.sess = nil
+		w.mu.Unlock()
+	}()
+
 	select {
 	case <-ctx.Done():
 		return true, nil
@@ -207,4 +219,11 @@ func logValue(a Attribute) string {
 		return string(b[:limit]) + "..."
 	}
 	return string(b)
+}
+
+// currentSession returns the session with the node, or nil while there is none.
+func (w *nodeWorker) currentSession() Session {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.sess
 }

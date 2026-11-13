@@ -246,6 +246,20 @@ type fakeHub struct {
 	nodes     []hub.Node
 	listeners map[int]func(hub.Change)
 	next      int
+	invoked   []invoked
+	invokeErr error
+}
+
+type invoked struct {
+	node uint64
+	cmd  hub.Command
+}
+
+func (h *fakeHub) Invoke(nodeID uint64, c hub.Command) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.invoked = append(h.invoked, invoked{nodeID, c})
+	return h.invokeErr
 }
 
 func (h *fakeHub) Fabric() (hub.Fabric, bool) { return h.fabric, h.fabric.FabricID != 0 }
