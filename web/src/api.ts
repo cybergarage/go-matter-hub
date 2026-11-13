@@ -61,10 +61,38 @@ export interface AttributesEvent {
   attributes: Attribute[];
 }
 
+export type CommissioningState = 'running' | 'succeeded' | 'failed';
+
+/** Why a commissioning failed. */
+export type CommissioningErrorCode =
+  | 'not_found'
+  | 'wifi_required'
+  | 'not_in_commissioning_mode'
+  | 'timeout'
+  | 'failed';
+
+/** A commissioning started from the hub. It holds no secret. */
+export interface Commissioning {
+  id: number;
+  state: CommissioningState;
+  /** True when Wi-Fi credentials were given for a device found over Bluetooth. */
+  overBluetooth: boolean;
+  startedAt: string;
+  finishedAt?: string;
+  /** The node the device became, once commissioned. */
+  node?: string;
+  error?: string;
+  errorCode?: CommissioningErrorCode;
+}
+
 export interface EventHandlers {
   nodes(nodes: MatterNode[]): void;
   status(event: StatusEvent): void;
   attributes(event: AttributesEvent): void;
+  /** A node which joined the hub. */
+  node(node: MatterNode): void;
+  /** The progress of a commissioning. */
+  commissioning(commissioning: Commissioning): void;
   /** The stream is connected (true) or is trying to connect again (false). */
   connection(open: boolean): void;
 }
@@ -120,6 +148,8 @@ export function openEvents(handlers: EventHandlers): () => void {
   on<{ nodes: MatterNode[] }>('nodes', (data) => handlers.nodes(data.nodes));
   on<StatusEvent>('status', (data) => handlers.status(data));
   on<AttributesEvent>('attributes', (data) => handlers.attributes(data));
+  on<MatterNode>('node', (data) => handlers.node(data));
+  on<{ commissioning: Commissioning }>('commissioning', (data) => handlers.commissioning(data.commissioning));
   source.onopen = () => handlers.connection(true);
   source.onerror = () => handlers.connection(false);
   return () => source.close();
@@ -139,3 +169,20 @@ export interface Command {
  */
 export const invoke = (node: string, command: Command) =>
   request<{ ok: boolean }>('POST', `/nodes/${node}/commands`, command);
+
+export interface WiFiCredentials {
+  ssid: string;
+  password: string;
+}
+
+/**
+ * Starts commissioning a device with its setup code: the text of its QR
+ * code (MT:...) or its manual pairing code. A device which is not on the
+ * network yet is found over Bluetooth and needs the Wi-Fi network to join.
+ * The progress arrives over the event stream.
+ */
+export const startCommissioning = (code: string, wifi?: WiFiCredentials) =>
+  request<{ commissioning: Commissioning }>('POST', '/commissioning', wifi ? { code, wifi } : { code });
+
+/** The latest commissioning, or null when there has been none. */
+export const getCommissioning = () => request<{ commissioning: Commissioning | null }>('GET', '/commissioning');

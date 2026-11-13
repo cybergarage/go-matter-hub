@@ -71,6 +71,12 @@ const (
 	ChangeStatus ChangeKind = "status"
 	// ChangeAttributes is a report of attribute values.
 	ChangeAttributes ChangeKind = "attributes"
+	// ChangeNodeAdded is a node which joined the hub, with its state in
+	// Node.
+	ChangeNodeAdded ChangeKind = "node"
+	// ChangeCommissioning is the progress of a commissioning, in
+	// Commissioning.
+	ChangeCommissioning ChangeKind = "commissioning"
 )
 
 // Change is told to the listeners of a hub when the state of a node changes.
@@ -84,6 +90,11 @@ type Change struct {
 	// Priming is true for the report which opens a subscription and holds
 	// every attribute of the node.
 	Priming bool
+	// Node is the state of a node which joined the hub, for
+	// ChangeNodeAdded.
+	Node *Node
+	// Commissioning is the commissioning, for ChangeCommissioning.
+	Commissioning *Commissioning
 }
 
 func sortAttributes(attrs []Attribute) {

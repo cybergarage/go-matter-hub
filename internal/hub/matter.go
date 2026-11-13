@@ -24,7 +24,9 @@ import (
 	"time"
 
 	"github.com/cybergarage/go-matter/matter"
+	"github.com/cybergarage/go-matter/matter/config"
 	"github.com/cybergarage/go-matter/matter/credentials"
+	"github.com/cybergarage/go-matter/matter/encoding"
 	caseprotocol "github.com/cybergarage/go-matter/matter/protocol/case"
 	"github.com/cybergarage/go-matter/matter/protocol/im"
 	"github.com/cybergarage/go-matter/matter/store"
@@ -204,6 +206,51 @@ func (c *MatterController) Nodes() ([]NodeRecord, error) {
 		})
 	}
 	return nodes, nil
+}
+
+// Commission commissions a device into the fabric. 5.5. Commissioning
+// Flows.
+func (c *MatterController) Commission(ctx context.Context, payload encoding.OnboardingPayload, wifi *WiFiCredentials) (NodeRecord, error) {
+	if c.cmr == nil {
+		return NodeRecord{}, ErrNotStarted
+	}
+	var opts []matter.CommissionOption
+	if wifi != nil {
+		opts = append(opts, config.NewWiFiNetworkConfig(
+			config.WithSSID([]byte(wifi.SSID)),
+			config.WithCredentials([]byte(wifi.Password)),
+		))
+	}
+	cme, err := c.cmr.Commission(ctx, payload, opts...)
+	if err != nil {
+		// The specific causes first: go-matter wraps them in ErrNotFound,
+		// and a failure on a device which was found in ErrFailed.
+		switch {
+		case errors.Is(err, matter.ErrWiFiNetworkRequired):
+			return NodeRecord{}, commissioningError(ErrWiFiRequired, err)
+		case errors.Is(err, matter.ErrNotInCommissioningMode):
+			return NodeRecord{}, commissioningError(ErrNotInCommissioningMode, err)
+		case errors.Is(err, matter.ErrFailed):
+			return NodeRecord{}, err
+		case errors.Is(err, matter.ErrNotFound):
+			return NodeRecord{}, commissioningError(ErrDeviceNotFound, err)
+		}
+		return NodeRecord{}, err
+	}
+	id, ok := cme.NodeID()
+	if !ok {
+		return NodeRecord{}, errors.New("commissioning returned no node ID")
+	}
+	nodes, err := c.Nodes()
+	if err != nil {
+		return NodeRecord{}, fmt.Errorf("the device joined as %016X, but the store cannot be read: %w", uint64(id), err)
+	}
+	for _, n := range nodes {
+		if n.NodeID == uint64(id) {
+			return n, nil
+		}
+	}
+	return NodeRecord{}, fmt.Errorf("the device joined as %016X, but the store holds no record of it", uint64(id))
 }
 
 // Connect establishes a CASE session with a commissioned node.

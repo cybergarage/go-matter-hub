@@ -64,6 +64,12 @@ type HubState interface {
 	Listen(fn func(hub.Change)) (remove func())
 	// Invoke invokes a command on a node.
 	Invoke(nodeID uint64, c hub.Command) error
+	// StartCommissioning starts commissioning a device with a setup code;
+	// wifi is nil for a device which is on the network already.
+	StartCommissioning(code string, wifi *hub.WiFiCredentials) (hub.Commissioning, error)
+	// Commissioning returns the latest commissioning; ok is false when
+	// there has been none.
+	Commissioning() (c hub.Commissioning, ok bool)
 }
 
 // Server serves the API and the web UI.
@@ -96,6 +102,8 @@ func New(cfg Config) *Server {
 	mux.Handle("GET /api/v1/nodes/{id}", s.protected(s.handleNode))
 	mux.Handle("GET /api/v1/events", s.protected(s.handleEvents))
 	mux.Handle("POST /api/v1/nodes/{id}/commands", s.protected(s.handleCommand))
+	mux.Handle("GET /api/v1/commissioning", s.protected(s.handleCommissioning))
+	mux.Handle("POST /api/v1/commissioning", s.protected(s.handleStartCommissioning))
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "no such API")
 	})

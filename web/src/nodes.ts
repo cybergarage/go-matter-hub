@@ -210,3 +210,13 @@ export function withAttributes(nodes: MatterNode[], event: AttributesEvent): Mat
     return { ...n, attributes: sorted([...merged.values()]) };
   });
 }
+
+/**
+ * The nodes after a node joined: added, or replaced when already there, in
+ * the order of their IDs as the hub lists them.
+ */
+export function withNode(nodes: MatterNode[], node: MatterNode): MatterNode[] {
+  const added = { ...node, attributes: sorted(node.attributes ?? []) };
+  // IDs are 16 hexadecimal digits, so they sort as strings.
+  return [...nodes.filter((n) => n.id !== node.id), added].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}

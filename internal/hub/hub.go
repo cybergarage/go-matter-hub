@@ -72,14 +72,20 @@ type Hub struct {
 	log *slog.Logger
 	ctl Controller
 
-	mu        sync.Mutex
-	started   bool
-	fabric    Fabric
+	mu      sync.Mutex
+	started bool
+	fabric  Fabric
+	// ctx is done when the hub stops; the goroutines of the hub run in it.
+	ctx       context.Context
 	cancel    context.CancelFunc
 	wg        sync.WaitGroup
 	nodes     map[uint64]*nodeWorker
 	listeners map[int]func(Change)
 	nextID    int
+
+	// commissioning is the latest commissioning since the hub started.
+	commissioning     *Commissioning
+	nextCommissioning int
 }
 
 // New returns a hub. Nothing is opened until Start.
@@ -135,22 +141,13 @@ func (h *Hub) Start() error {
 	}
 	h.fabric = fabric
 
-	ctx, cancel := context.WithCancel(context.Background())
-	h.cancel = cancel
+	h.ctx, h.cancel = context.WithCancel(context.Background())
 	h.started = true
 	// A hub which is started again connects anew.
 	h.nodes = make(map[uint64]*nodeWorker, len(records))
+	h.commissioning = nil
 	for _, rec := range records {
-		if _, ok := h.nodes[rec.NodeID]; ok {
-			continue
-		}
-		w := newNodeWorker(h, rec)
-		h.nodes[rec.NodeID] = w
-		h.wg.Add(1)
-		go func() {
-			defer h.wg.Done()
-			w.run(ctx)
-		}()
+		h.addNodeLocked(rec)
 	}
 	h.log.Info("hub started", "fabric", hexID(fabric.FabricID), "nodes", len(h.nodes))
 	return nil
