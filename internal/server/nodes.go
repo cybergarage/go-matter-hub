@@ -119,9 +119,18 @@ type attributesEvent struct {
 	Attributes []hub.Attribute `json:"attributes"`
 }
 
+type commissioningEvent struct {
+	Commissioning commissioningJSON `json:"commissioning"`
+}
+
 func changeEvent(c hub.Change) streamEvent {
-	if c.Kind == hub.ChangeAttributes {
+	switch {
+	case c.Kind == hub.ChangeAttributes:
 		return streamEvent{name: "attributes", data: attributesEvent{Node: nodeIDText(c.NodeID), Priming: c.Priming, Attributes: c.Attributes}}
+	case c.Kind == hub.ChangeNodeAdded && c.Node != nil:
+		return streamEvent{name: "node", data: newNodeJSON(*c.Node)}
+	case c.Kind == hub.ChangeCommissioning && c.Commissioning != nil:
+		return streamEvent{name: "commissioning", data: commissioningEvent{Commissioning: newCommissioningJSON(*c.Commissioning)}}
 	}
 	return streamEvent{name: "status", data: statusEvent{Node: nodeIDText(c.NodeID), Status: c.Status, Error: c.Error}}
 }
@@ -138,7 +147,8 @@ func writeEvent(w http.ResponseWriter, e streamEvent) error {
 
 // handleEvents streams the state of the nodes as Server-Sent Events: a
 // "nodes" event with every node first, then a "status" or an "attributes"
-// event for each change.
+// event for each change of a node, a "node" event for a node which joined,
+// and a "commissioning" event for the progress of a commissioning.
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	rc := http.NewResponseController(w)
 	h := w.Header()

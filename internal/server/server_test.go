@@ -248,6 +248,39 @@ type fakeHub struct {
 	next      int
 	invoked   []invoked
 	invokeErr error
+
+	commissioning *hub.Commissioning
+	commissions   []commissionCall
+	commissionErr error
+}
+
+type commissionCall struct {
+	code string
+	wifi *hub.WiFiCredentials
+}
+
+func (h *fakeHub) StartCommissioning(code string, wifi *hub.WiFiCredentials) (hub.Commissioning, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.commissions = append(h.commissions, commissionCall{code, wifi})
+	if h.commissionErr != nil {
+		return hub.Commissioning{}, h.commissionErr
+	}
+	if _, err := hub.ParseSetupCode(code); err != nil {
+		return hub.Commissioning{}, err
+	}
+	c := hub.Commissioning{ID: len(h.commissions), State: hub.CommissioningRunning, OverBluetooth: wifi != nil}
+	h.commissioning = &c
+	return c, nil
+}
+
+func (h *fakeHub) Commissioning() (hub.Commissioning, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.commissioning == nil {
+		return hub.Commissioning{}, false
+	}
+	return *h.commissioning, true
 }
 
 type invoked struct {

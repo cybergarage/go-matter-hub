@@ -20,6 +20,8 @@ package hub
 import (
 	"context"
 	"time"
+
+	"github.com/cybergarage/go-matter/matter/encoding"
 )
 
 // Controller is what the hub needs from a Matter controller. The go-matter
@@ -40,6 +42,12 @@ type Controller interface {
 	Nodes() ([]NodeRecord, error)
 	// Connect establishes a session with a commissioned node.
 	Connect(ctx context.Context, nodeID uint64) (Session, error)
+	// Commission commissions the device with the setup code into the
+	// fabric, and returns the record the store keeps of it. wifi is nil
+	// for a device already on the network. The errors wrap
+	// ErrDeviceNotFound, ErrWiFiRequired or ErrNotInCommissioningMode
+	// where they apply.
+	Commission(ctx context.Context, payload encoding.OnboardingPayload, wifi *WiFiCredentials) (NodeRecord, error)
 }
 
 // Fabric identifies the fabric of the hub.

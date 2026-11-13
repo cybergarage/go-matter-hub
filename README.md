@@ -6,7 +6,7 @@ One executable holds the daemon and the web UI. It is meant to run on a host on 
 
 ## Status
 
-The hub keeps a fabric of its own, connects to the nodes commissioned into it, follows their state by subscription, shows the devices and their state, live, in the web UI and over the API, and controls them: on/off, brightness, white color temperature and color (phase B4). There is no way yet to commission a device from the hub.
+The hub keeps a fabric of its own, connects to the nodes commissioned into it, follows their state by subscription, shows the devices and their state, live, in the web UI and over the API, and controls them: on/off, brightness, white color temperature and color, and adds new devices with their setup code (phase B5).
 
 | Phase | Scope | Status |
 | --- | --- | --- |
@@ -14,14 +14,14 @@ The hub keeps a fabric of its own, connects to the nodes commissioned into it, f
 | B2 | A fabric of the hub's own; connect to the commissioned nodes at startup and keep their state by subscription | Done |
 | B3 | Read API (nodes, state) and live updates over Server-Sent Events; device list | Done |
 | B4 | Control API and UI: on/off, level, color | Done |
-| B5 | Commissioning from the UI | Planned |
+| B5 | Commissioning from the UI | Done |
 | B6 | systemd unit, configuration file, key store | Planned |
 
 Automation and remote access are out of scope for now.
 
 ## Build and run
 
-Go 1.25 or later, and Node.js 22 or later with npm. The hub depends on go-matter v0.9.1.
+Go 1.25 or later, and Node.js 22 or later with npm. The hub depends on go-matter v0.9.2.
 
 ```sh
 make build        # builds web/dist, then bin/go-matter-hub
@@ -54,11 +54,16 @@ level=INFO msg="attribute changed" node=0000000016A5E84A endpoint=1 cluster=0x00
 
 `fabric.json` holds the private keys of the fabric, unencrypted, readable by the owner only (mode 0600, in a directory of mode 0700). Whoever can read it can control every device of the hub. A key store is planned (B6).
 
-Until the hub can commission (B5), its data directory can be given a device with go-matter's `matterctl`, pointed at the same directory while the hub is stopped:
+## Adding a device
 
-```sh
-matterctl tui --store-dir ~/.go-matter-hub
-```
+**Add device** in the web UI takes the device's setup code: the text of its QR code (`MT:...`) or the 11- or 21-digit manual pairing code printed beside it.
+
+- **A new device**, not on any network yet, is found over Bluetooth and given the Wi-Fi network it is to join. The host of the hub needs a Bluetooth adapter (BlueZ on Linux), and most devices join a 2.4 GHz network only. The browser remembers the network name; the password is handed to the device and not stored.
+- **A device already on the network**, Wi-Fi or Ethernet, is found by mDNS. It has to be waiting to be set up: new from the factory or reset, or with a pairing window opened from the app or hub it is already set up with.
+
+The hub adds one device at a time, for up to three minutes. Once commissioned, the device joins the hub's list at once and is followed like the others. A device that is on the network but not waiting to be set up (it advertises `CM=0`) is reported right away instead of after a timeout.
+
+Neither the setup code nor the Wi-Fi password is logged or reported back by the API.
 
 ## Access control
 
@@ -105,6 +110,8 @@ All paths are under `/api/v1`. Errors are `{"error": {"code": "...", "message": 
 | `GET /nodes/{id}` | Token | One node |
 | `GET /events` | Token | The state of the nodes as Server-Sent Events; see below |
 | `POST /nodes/{id}/commands` | Token | Invokes a command on a node; see below |
+| `POST /commissioning` | Token | Starts adding a device; see below |
+| `GET /commissioning` | Token | `{"commissioning": commissioning}`, the latest one, or `null` |
 | `GET /hub` | Token | `{"version": "...", "authRequired": bool, "fabricId": "<16 hex digits>", "nodes": {"total": n, "online": n}}` |
 
 A node:
@@ -136,6 +143,8 @@ A node:
 | `nodes` | `{"nodes": [node, ...]}` | Sent first on every connection: all the nodes |
 | `status` | `{"node": id, "status": "...", "error": "..."}` | A node's status changed |
 | `attributes` | `{"node": id, "priming": bool, "attributes": [...]}` | Attributes changed. With `priming` true they are the whole state of the node and replace what the client holds |
+| `node` | node | A node joined the hub |
+| `commissioning` | `{"commissioning": commissioning}` | A commissioning started or ended |
 
 A comment line is sent every 15 seconds on an idle stream. A client which falls 256 events behind is disconnected; it connects again and starts from a fresh `nodes` event.
 
@@ -167,6 +176,33 @@ curl -X POST -H 'Content-Type: application/json' \
 | 504 | `node_error` | The node did not answer, or the session failed |
 
 The web UI uses On and Off (On/Off cluster), MoveToLevelWithOnOff (Level Control), MoveToColorTemperature and MoveToHueAndSaturation (Color Control), with a half-second transition. It offers the color temperature and the colors only when the light's ColorCapabilities say it takes them.
+
+### Commissioning
+
+`POST /commissioning` starts adding a device and answers `202` once it has started:
+
+```sh
+curl -X POST -H 'Content-Type: application/json' \
+  -d '{"code": "MT:...", "wifi": {"ssid": "home", "password": "..."}}' \
+  http://127.0.0.1:8580/api/v1/commissioning
+```
+
+- `code` is the QR code text or the manual pairing code. `wifi` is for a device found over Bluetooth; leave it out for a device on the network already.
+- The progress arrives over `GET /events`: a `commissioning` event when it starts and when it ends, and a `node` event for the new node.
+
+```json
+{"id": 1, "state": "failed", "overBluetooth": true, "startedAt": "...", "finishedAt": "...",
+ "error": "...", "errorCode": "not_in_commissioning_mode"}
+```
+
+`state` is `running`, `succeeded` (with `node`, the new node's ID) or `failed`, with `errorCode` one of `not_found`, `wifi_required` (found over Bluetooth only, and no Wi-Fi given), `not_in_commissioning_mode`, `timeout` and `failed`.
+
+| Status | Code | Meaning |
+| --- | --- | --- |
+| 400 | `invalid_code` | The setup code is malformed, or has a checksum or passcode which is not valid |
+| 400 | `invalid_wifi` | The SSID is empty or longer than 32 bytes, or the password is not 8 to 63 characters or 64 hexadecimal digits |
+| 409 | `busy` | Another device is being added |
+| 503 | `not_ready` | The hub has not started |
 
 ## Development
 

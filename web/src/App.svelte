@@ -1,9 +1,10 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
-  import { ApiError, getHealth, getHub, getSession, openEvents, signIn, signOut } from './api';
-  import type { Hub, MatterNode } from './api';
+  import { ApiError, getCommissioning, getHealth, getHub, getSession, openEvents, signIn, signOut } from './api';
+  import type { Commissioning, Hub, MatterNode } from './api';
+  import AddDevice from './AddDevice.svelte';
   import DeviceCard from './DeviceCard.svelte';
-  import { withAttributes, withStatus } from './nodes';
+  import { nodeName, withAttributes, withNode, withStatus } from './nodes';
 
   type View = 'loading' | 'unreachable' | 'signin' | 'home';
 
@@ -16,6 +17,7 @@
   let nodes = $state<MatterNode[]>([]);
   // null until the stream has delivered the nodes once.
   let live = $state<boolean | null>(null);
+  let commissioning = $state<Commissioning | null>(null);
   let closeEvents: (() => void) | null = null;
 
   function stopEvents() {
@@ -30,9 +32,21 @@
       nodes: (all) => {
         nodes = all;
         live = true;
+        // A commissioning may have run or ended while the stream was away.
+        getCommissioning()
+          .then((res) => {
+            if (res.commissioning && (!commissioning || res.commissioning.id >= commissioning.id)) {
+              commissioning = res.commissioning;
+            }
+          })
+          .catch(() => {
+            // Told again by the next event.
+          });
       },
       status: (event) => (nodes = withStatus(nodes, event)),
       attributes: (event) => (nodes = withAttributes(nodes, event)),
+      node: (node) => (nodes = withNode(nodes, node)),
+      commissioning: (c) => (commissioning = c),
       connection: (open) => {
         if (open) {
           return;
@@ -172,15 +186,18 @@
         {#if hub?.fabricId}<span class="fabric">· Fabric {hub.fabricId}</span>{/if}
       {/if}
     </div>
-    <h2>Devices</h2>
+    <AddDevice
+      {commissioning}
+      nameOf={(id) => {
+        const node = nodes.find((n) => n.id === id);
+        return node ? nodeName(node) : `Node ${id}`;
+      }}
+    />
     {#if live === null}
       <p class="muted">Loading devices…</p>
     {:else if nodes.length === 0}
       <section class="card">
-        <p class="muted last">
-          No devices yet. The hub cannot commission a device from here yet; see the README for how
-          to add one with <code>matterctl</code>.
-        </p>
+        <p class="muted last">No devices yet. Add one with its setup code.</p>
       </section>
     {:else}
       <div class="devices">

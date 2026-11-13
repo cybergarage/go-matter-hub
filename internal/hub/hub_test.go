@@ -22,6 +22,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/cybergarage/go-matter/matter/encoding"
 )
 
 // fakeController is a Controller whose nodes are fakeSessions.
@@ -37,6 +39,9 @@ type fakeController struct {
 	sessions    map[uint64][]*fakeSession
 	// connected receives every session Connect returns.
 	connected chan *fakeSession
+	// commissionResults answers the commissionings.
+	commissionResults chan commissionResult
+	commissions       []commissionCall
 }
 
 func newFakeController(records ...NodeRecord) *fakeController {
@@ -47,6 +52,8 @@ func newFakeController(records ...NodeRecord) *fakeController {
 		connectErrs: map[uint64][]error{},
 		sessions:    map[uint64][]*fakeSession{},
 		connected:   make(chan *fakeSession, 16),
+
+		commissionResults: make(chan commissionResult, 4),
 	}
 }
 
@@ -101,6 +108,37 @@ func (c *fakeController) Connect(_ context.Context, nodeID uint64) (Session, err
 	c.mu.Unlock()
 	c.connected <- s
 	return s, nil
+}
+
+// Commission blocks until the test answers on commissionResults, or the
+// context ends; a success adds the node to the store's records.
+func (c *fakeController) Commission(ctx context.Context, payload encoding.OnboardingPayload, wifi *WiFiCredentials) (NodeRecord, error) {
+	c.mu.Lock()
+	c.commissions = append(c.commissions, commissionCall{discriminator: uint16(payload.Discriminator()), wifi: wifi})
+	results := c.commissionResults
+	c.mu.Unlock()
+	select {
+	case <-ctx.Done():
+		return NodeRecord{}, ctx.Err()
+	case r := <-results:
+		if r.err != nil {
+			return NodeRecord{}, r.err
+		}
+		c.mu.Lock()
+		c.records = append(c.records, r.rec)
+		c.mu.Unlock()
+		return r.rec, nil
+	}
+}
+
+type commissionCall struct {
+	discriminator uint16
+	wifi          *WiFiCredentials
+}
+
+type commissionResult struct {
+	rec NodeRecord
+	err error
 }
 
 func (c *fakeController) connectCount(nodeID uint64) int {

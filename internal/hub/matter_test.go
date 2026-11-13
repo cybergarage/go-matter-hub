@@ -68,6 +68,121 @@ func onOffValue(n Node) (value any, ok bool) {
 	return nil, false
 }
 
+// startLight starts an On/Off Light built with go-matter's device role, in
+// commissioning mode with the SDK example's setup code, and stops it when
+// the test ends. It skips the test where the device cannot advertise.
+func startLight(t *testing.T) *cluster.OnOff {
+	t.Helper()
+	attestation, err := testcreds.AttestationProvider()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dev, err := device.New(
+		device.WithDeviceStore(store.NewMemDeviceStore()),
+		device.WithPasscode(types.Passcode(lightPasscode)),
+		device.WithAddress(":0"),
+		device.WithDiscriminator(lightDiscriminator),
+		device.WithVendorID(testcreds.VendorID),
+		device.WithProductID(testcreds.ProductID),
+		device.WithAttestationProvider(attestation),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ep, err := dev.AddEndpoint(lightEndpoint, device.OnOffLightDeviceType)
+	if err != nil {
+		t.Fatal(err)
+	}
+	light := cluster.NewOnOff()
+	light.Register(ep)
+	if err := dev.Start(); err != nil {
+		t.Skipf("the device cannot advertise here: %v", err)
+	}
+	t.Cleanup(func() { _ = dev.Stop() })
+	return light
+}
+
+// TestHubCommissionsAGoMatterLight commissions go-matter's On/Off Light from
+// the hub itself, over IP, into a fabric the hub creates, and follows the
+// new node without a restart.
+func TestHubCommissionsAGoMatterLight(t *testing.T) {
+	if testing.Short() {
+		t.Skip("uses mDNS on the network; skipped with -short")
+	}
+	ctl := NewMatterController(t.TempDir(), matter.WithCommissionerCentral(noBLE{}))
+	// The endpoint of the light only; see TestHubFollowsAGoMatterLight.
+	endpoint := im.EndpointID(lightEndpoint)
+	ctl.paths = []im.AttributeRequestPath{{Endpoint: &endpoint}}
+	h, err := New(Config{Controller: ctl, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), RetryMin: 200 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Start(); err != nil {
+		t.Skipf("the hub cannot start here: %v", err)
+	}
+	defer func() { _ = h.Stop() }()
+	light := startLight(t)
+
+	job, err := h.StartCommissioning(lightPairingCode, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.State != CommissioningRunning || job.OverBluetooth {
+		t.Fatalf("job = %+v", job)
+	}
+	waitJob := func() Commissioning {
+		t.Helper()
+		deadline := time.Now().Add(CommissioningTimeout)
+		for {
+			c, _ := h.Commissioning()
+			if c.ID == job.ID && c.State != CommissioningRunning {
+				return c
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("the commissioning did not end")
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+	done := waitJob()
+	if done.State != CommissioningSucceeded || done.NodeID == 0 {
+		t.Fatalf("commissioning = %+v", done)
+	}
+
+	// The node joined the running hub.
+	deadline := time.Now().Add(60 * time.Second)
+	for {
+		n, ok := h.Node(done.NodeID)
+		if ok && n.Status == StatusOnline {
+			if v, found := onOffValue(n); !found || v != false {
+				t.Fatalf("OnOff = %v, %v", v, found)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the new node did not come online: %+v", n)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if err := h.Invoke(done.NodeID, Command{Endpoint: lightEndpoint, Cluster: onOffCluster, Command: 0x01}); err != nil {
+		t.Fatalf("On: %v", err)
+	}
+	if !light.On() {
+		t.Fatal("the light is off after On")
+	}
+
+	// The light's commissioning window closed with the commissioning: the
+	// same code finds no device to commission any more.
+	job, err = h.StartCommissioning(lightPairingCode, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again := waitJob()
+	if again.State != CommissioningFailed || (again.ErrorCode != "not_found" && again.ErrorCode != "not_in_commissioning_mode") {
+		t.Fatalf("second commissioning = %+v", again)
+	}
+}
+
 // TestHubFollowsAGoMatterLight runs the hub against an On/Off Light built
 // with go-matter's device role, over mDNS and UDP on this host: the hub
 // creates its fabric in a new store, a commissioner on the same store
@@ -97,33 +212,7 @@ func TestHubFollowsAGoMatterLight(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The light.
-	attestation, err := testcreds.AttestationProvider()
-	if err != nil {
-		t.Fatal(err)
-	}
-	dev, err := device.New(
-		device.WithDeviceStore(store.NewMemDeviceStore()),
-		device.WithPasscode(types.Passcode(lightPasscode)),
-		device.WithAddress(":0"),
-		device.WithDiscriminator(lightDiscriminator),
-		device.WithVendorID(testcreds.VendorID),
-		device.WithProductID(testcreds.ProductID),
-		device.WithAttestationProvider(attestation),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ep, err := dev.AddEndpoint(lightEndpoint, device.OnOffLightDeviceType)
-	if err != nil {
-		t.Fatal(err)
-	}
-	light := cluster.NewOnOff()
-	light.Register(ep)
-	if err := dev.Start(); err != nil {
-		t.Skipf("the device cannot advertise here: %v", err)
-	}
-	defer func() { _ = dev.Stop() }()
+	light := startLight(t)
 
 	// Commission the light into the hub's fabric, as the hub will do from
 	// its UI later.
