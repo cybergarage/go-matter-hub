@@ -2,7 +2,7 @@ module github.com/cybergarage/go-matter-hub
 
 go 1.25.0
 
-require github.com/cybergarage/go-matter v0.9.2
+require github.com/cybergarage/go-matter v0.9.3
 
 require (
 	github.com/cpuguy83/go-md2man/v2 v2.0.6 // indirect
