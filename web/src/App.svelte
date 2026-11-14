@@ -23,7 +23,7 @@
 
   function removed(name: string, fromDevice: boolean) {
     notice = fromDevice
-      ? `${name} was removed. To add it again, put it into pairing mode, or reset it to factory defaults.`
+      ? `${name} was removed. To add it again, reset it to factory defaults: many devices do not start waiting to be set up again by themselves.`
       : `${name} was removed from the hub only. It still holds the hub's fabric: reset it to factory defaults before adding it again.`;
   }
   let closeEvents: (() => void) | null = null;

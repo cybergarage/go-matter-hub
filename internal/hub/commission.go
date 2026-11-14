@@ -38,7 +38,7 @@ var (
 	ErrWiFiRequired = errors.New("the device was found over Bluetooth only: give the Wi-Fi network it is to join")
 	// ErrNotInCommissioningMode is returned when the device is on the
 	// network, but has no commissioning window open.
-	ErrNotInCommissioningMode = errors.New("the device is on the network but not in commissioning mode: open a commissioning window on it, or reset it to factory defaults")
+	ErrNotInCommissioningMode = errors.New("the device is on the network but not in commissioning mode: if another app or hub has it, open a commissioning window there; otherwise, as after it was removed from this hub or a commissioning failed midway, reset it to factory defaults")
 )
 
 // CommissioningState is the state of a commissioning.

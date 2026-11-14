@@ -59,9 +59,9 @@ level=INFO msg="attribute changed" node=0000000016A5E84A endpoint=1 cluster=0x00
 **Add device** in the web UI takes the device's setup code: the text of its QR code (`MT:...`) or the 11- or 21-digit manual pairing code printed beside it.
 
 - **A new device**, not on any network yet, is found over Bluetooth and given the Wi-Fi network it is to join. The host of the hub needs a Bluetooth adapter (BlueZ on Linux), and most devices join a 2.4 GHz network only. The browser remembers the network name; the password is handed to the device and not stored.
-- **A device already on the network**, Wi-Fi or Ethernet, is found by mDNS. It has to be waiting to be set up: new from the factory or reset, or with a pairing window opened from the app or hub it is already set up with.
+- **A device already on the network**, Wi-Fi or Ethernet, is found by mDNS. It has to be waiting to be set up: new from the factory or reset, or with a pairing window opened from another app or hub it is set up with.
 
-The hub adds one device at a time, for up to three minutes. Once commissioned, the device joins the hub's list at once and is followed like the others. A device that is on the network but not waiting to be set up (it advertises `CM=0`) is reported right away instead of after a timeout.
+The hub adds one device at a time, for up to three minutes. Once commissioned, the device joins the hub's list at once and is followed like the others. A device that is on the network but not waiting to be set up (it advertises `CM=0`) is reported right away instead of after a timeout. If another app or hub has it, open a pairing window there; otherwise reset it to factory defaults. A device is left that way after it was removed from this hub, and by some devices after a commissioning which failed midway, once they have joined the Wi-Fi network.
 
 Neither the setup code nor the Wi-Fi password is logged or reported back by the API, at any log level: the hex dumps go-matter makes of the messages it sends and receives, which may hold them, are never logged.
 
@@ -71,7 +71,7 @@ Neither the setup code nor the Wi-Fi password is logged or reported back by the 
 
 A device which is offline, or which does not leave the fabric, is not removed. The hub can then forget it anyway (**Remove from the hub only**): the device keeps the hub's fabric until it is reset to factory defaults, which it needs before it can be added again.
 
-To add a removed device again, put it into pairing mode, or reset it to factory defaults.
+To add a removed device again, reset it to factory defaults. A device may start waiting to be set up again by itself once it has no fabric left, but many do not: they stay on the network, not waiting to be set up.
 
 ## Access control
 
