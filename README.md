@@ -33,7 +33,7 @@ bin/go-matter-hub # http://127.0.0.1:8580
 | `-listen` | `127.0.0.1:8580` | Address to listen on |
 | `-data-dir` | `~/.go-matter-hub` | Directory for the hub's fabric, its commissioned nodes and the access token |
 | `-vendor-id` | `0xFFF1` | Administrator vendor ID of the fabric the hub creates at its first start |
-| `-log-level` | `info` | `debug`, `info`, `warn` or `error` |
+| `-log-level` | `info` | `debug`, `info`, `warn` or `error`. go-matter's own messages are logged with `component=go-matter`: all of them at `debug` (each step of commissioning and of each session), only its warnings and errors otherwise |
 | `-allowed-host` | | Host name by which browsers may reach the hub; repeatable |
 | `-require-auth` | off | Require the access token on the loopback interface too |
 | `-version` | | Print the version |
@@ -63,7 +63,7 @@ level=INFO msg="attribute changed" node=0000000016A5E84A endpoint=1 cluster=0x00
 
 The hub adds one device at a time, for up to three minutes. Once commissioned, the device joins the hub's list at once and is followed like the others. A device that is on the network but not waiting to be set up (it advertises `CM=0`) is reported right away instead of after a timeout.
 
-Neither the setup code nor the Wi-Fi password is logged or reported back by the API.
+Neither the setup code nor the Wi-Fi password is logged or reported back by the API, at any log level: the hex dumps go-matter makes of the messages it sends and receives, which may hold them, are never logged.
 
 ## Access control
 

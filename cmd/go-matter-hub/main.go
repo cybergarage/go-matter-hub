@@ -34,6 +34,7 @@ import (
 
 	"github.com/cybergarage/go-matter-hub/internal/auth"
 	"github.com/cybergarage/go-matter-hub/internal/hub"
+	"github.com/cybergarage/go-matter-hub/internal/logbridge"
 	"github.com/cybergarage/go-matter-hub/internal/server"
 	"github.com/cybergarage/go-matter-hub/internal/version"
 	"github.com/cybergarage/go-matter-hub/web"
@@ -133,6 +134,9 @@ func run(args []string) error {
 	}
 
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: o.logLevel})))
+	// go-matter's own log: every message at -log-level debug, its
+	// warnings and errors otherwise.
+	logbridge.Install(slog.Default(), o.logLevel)
 
 	loopback, err := loopbackOnly(o.listen)
 	if err != nil {
