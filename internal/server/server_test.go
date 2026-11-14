@@ -1,4 +1,4 @@
-// Copyright (C) 2026 The go-matter-hub Authors. All rights reserved.
+// Copyright (C) 2026 The homewire Authors. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -23,8 +23,8 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/cybergarage/go-matter-hub/internal/auth"
-	"github.com/cybergarage/go-matter-hub/internal/hub"
+	"github.com/cybergarage/homewire/internal/auth"
+	"github.com/cybergarage/homewire/internal/hub"
 )
 
 const testToken = "test-token"

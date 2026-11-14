@@ -1,4 +1,4 @@
-module github.com/cybergarage/go-matter-hub
+module github.com/cybergarage/homewire
 
 go 1.25.0
 

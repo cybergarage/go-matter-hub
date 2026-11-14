@@ -144,7 +144,7 @@
 <header>
   <div class="brand">
     <span class="mark" aria-hidden="true"></span>
-    <h1>go-matter-hub</h1>
+    <h1>homewire</h1>
   </div>
   <div class="meta">
     {#if version}<span class="version">v{version}</span>{/if}

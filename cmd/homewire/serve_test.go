@@ -1,4 +1,4 @@
-// Copyright (C) 2026 The go-matter-hub Authors. All rights reserved.
+// Copyright (C) 2026 The homewire Authors. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@ import (
 	"log/slog"
 	"testing"
 
-	"github.com/cybergarage/go-matter-hub/internal/hub"
+	"github.com/cybergarage/homewire/internal/hub"
 )
 
 func TestLoopbackOnly(t *testing.T) {
@@ -51,7 +51,7 @@ func TestLoopbackOnly(t *testing.T) {
 }
 
 func TestParseOptionsDefaultsToLoopback(t *testing.T) {
-	o, err := parseOptions(nil)
+	o, err := parseServeOptions(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,18 +65,18 @@ func TestParseOptionsDefaultsToLoopback(t *testing.T) {
 }
 
 func TestParseOptionsVendorIDAndLogLevel(t *testing.T) {
-	o, err := parseOptions(nil)
+	o, err := parseServeOptions(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if o.vendorID != hub.DefaultVendorID || o.logLevel != slog.LevelInfo {
 		t.Fatalf("defaults: vendor 0x%04X, level %v", o.vendorID, o.logLevel)
 	}
-	o, err = parseOptions([]string{"-vendor-id", "0x1217", "-log-level", "debug"})
+	o, err = parseServeOptions([]string{"-vendor-id", "0x1217", "-log-level", "debug"})
 	if err != nil || o.vendorID != 0x1217 || o.logLevel != slog.LevelDebug {
 		t.Fatalf("options = %+v, %v", o, err)
 	}
-	if o, err = parseOptions([]string{"-vendor-id", "65521"}); err != nil || o.vendorID != 0xFFF1 {
+	if o, err = parseServeOptions([]string{"-vendor-id", "65521"}); err != nil || o.vendorID != 0xFFF1 {
 		t.Fatalf("decimal vendor ID: %+v, %v", o, err)
 	}
 	for _, args := range [][]string{
@@ -86,7 +86,7 @@ func TestParseOptionsVendorIDAndLogLevel(t *testing.T) {
 		{"-log-level", "loud"},
 		{"extra"},
 	} {
-		if _, err := parseOptions(args); err == nil {
+		if _, err := parseServeOptions(args); err == nil {
 			t.Errorf("%v accepted", args)
 		}
 	}

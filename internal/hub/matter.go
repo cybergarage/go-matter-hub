@@ -1,4 +1,4 @@
-// Copyright (C) 2026 The go-matter-hub Authors. All rights reserved.
+// Copyright (C) 2026 The homewire Authors. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -34,10 +34,10 @@ import (
 )
 
 // AppName names the hub's own store: by default the commissioner of the hub
-// keeps its fabric and its commissioned nodes in ~/.go-matter-hub, apart
-// from the ~/.go-matter of other go-matter applications. It is the name
+// keeps its fabric and its commissioned nodes in ~/.homewire, apart from
+// the ~/.go-matter of other go-matter applications. It is the name
 // matter.WithCommissionerAppName would be given.
-const AppName = "go-matter-hub"
+const AppName = "homewire"
 
 // MatterController is the Controller backed by go-matter: a commissioner
 // with a file store of its own.

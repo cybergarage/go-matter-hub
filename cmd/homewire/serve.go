@@ -1,4 +1,4 @@
-// Copyright (C) 2026 The go-matter-hub Authors. All rights reserved.
+// Copyright (C) 2026 The homewire Authors. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,14 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Command go-matter-hub is a Matter hub: a controller which stays up, with a
-// web UI and an HTTP API.
 package main
 
 import (
 	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"log/slog"
 	"net"
@@ -32,18 +29,17 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/cybergarage/go-matter-hub/internal/auth"
-	"github.com/cybergarage/go-matter-hub/internal/hub"
-	"github.com/cybergarage/go-matter-hub/internal/logbridge"
-	"github.com/cybergarage/go-matter-hub/internal/server"
-	"github.com/cybergarage/go-matter-hub/internal/version"
-	"github.com/cybergarage/go-matter-hub/web"
+	"github.com/cybergarage/homewire/internal/auth"
+	"github.com/cybergarage/homewire/internal/hub"
+	"github.com/cybergarage/homewire/internal/logbridge"
+	"github.com/cybergarage/homewire/internal/server"
+	"github.com/cybergarage/homewire/internal/version"
+	"github.com/cybergarage/homewire/web"
 )
 
 const (
-	defaultListen  = "127.0.0.1:8580"
-	defaultDataDir = ".go-matter-hub"
-	tokenFileName  = "token"
+	defaultListen = "127.0.0.1:8580"
+	tokenFileName = "token"
 )
 
 type hostList []string
@@ -51,33 +47,31 @@ type hostList []string
 func (l *hostList) String() string     { return strings.Join(*l, ",") }
 func (l *hostList) Set(v string) error { *l = append(*l, v); return nil }
 
-type options struct {
+type serveOptions struct {
 	listen       string
 	dataDir      string
 	allowedHosts hostList
 	requireAuth  bool
-	showVersion  bool
 	vendorID     uint16
 	logLevel     slog.Level
 }
 
-func parseOptions(args []string) (options, error) {
-	var o options
-	home, _ := os.UserHomeDir()
-	fs := flag.NewFlagSet("go-matter-hub", flag.ContinueOnError)
+func parseServeOptions(args []string) (serveOptions, error) {
+	var o serveOptions
+	fs := newFlagSet("serve", "runs the hub: the controller, its web UI and its HTTP API")
 	fs.StringVar(&o.listen, "listen", defaultListen, "address to listen on; an address other than loopback always requires the access token")
-	fs.StringVar(&o.dataDir, "data-dir", filepath.Join(home, defaultDataDir), "directory for the hub's own fabric, its commissioned nodes and the access token")
+	dataDir := dataDirFlag(fs)
 	vendorID := fs.String("vendor-id", fmt.Sprintf("0x%04X", hub.DefaultVendorID), "administrator vendor ID of the fabric the hub creates at its first start")
 	logLevel := fs.String("log-level", "info", "log level: debug, info, warn or error")
 	fs.Var(&o.allowedHosts, "allowed-host", "host name by which browsers may reach the hub (repeatable); IP addresses and localhost are always allowed")
 	fs.BoolVar(&o.requireAuth, "require-auth", false, "require the access token on the loopback interface too")
-	fs.BoolVar(&o.showVersion, "version", false, "print the version and exit")
 	if err := fs.Parse(args); err != nil {
 		return o, err
 	}
 	if fs.NArg() != 0 {
 		return o, fmt.Errorf("unexpected argument: %s", fs.Arg(0))
 	}
+	o.dataDir = *dataDir
 	// Base 0: 0x-prefixed hexadecimal, or decimal.
 	id, err := strconv.ParseUint(*vendorID, 0, 16)
 	if err != nil || id == 0 || id > 0xFFF4 {
@@ -120,23 +114,22 @@ func hostNames(listen string, configured []string) []string {
 	return names
 }
 
-func run(args []string) error {
-	o, err := parseOptions(args)
+// serve runs the hub until it is interrupted or terminated.
+func serve(args []string) error {
+	o, err := parseServeOptions(args)
 	if err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return nil
-		}
 		return err
-	}
-	if o.showVersion {
-		fmt.Println(version.Version)
-		return nil
 	}
 
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: o.logLevel})))
 	// go-matter's own log: every message at -log-level debug, its
 	// warnings and errors otherwise.
 	logbridge.Install(slog.Default(), o.logLevel)
+
+	o.dataDir, err = resolveDataDir(o.dataDir)
+	if err != nil {
+		return err
+	}
 
 	loopback, err := loopbackOnly(o.listen)
 	if err != nil {
@@ -203,7 +196,7 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
-	slog.Info("go-matter-hub started", "version", version.Version, "url", "http://"+ln.Addr().String())
+	slog.Info("homewire started", "version", version.Version, "url", "http://"+ln.Addr().String())
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -226,11 +219,4 @@ func run(args []string) error {
 		return err
 	}
 	return nil
-}
-
-func main() {
-	if err := run(os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, "go-matter-hub:", err)
-		os.Exit(1)
-	}
 }

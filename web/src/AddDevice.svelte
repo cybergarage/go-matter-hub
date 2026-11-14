@@ -14,11 +14,13 @@
 
   type Network = 'bluetooth' | 'ip';
 
-  const SSID_KEY = 'go-matter-hub.ssid';
+  const SSID_KEY = 'homewire.ssid';
+  // The key from before the hub was named homewire, still read.
+  const LEGACY_SSID_KEY = 'go-matter-hub.ssid';
 
   function storedSSID(): string {
     try {
-      return localStorage.getItem(SSID_KEY) ?? '';
+      return localStorage.getItem(SSID_KEY) ?? localStorage.getItem(LEGACY_SSID_KEY) ?? '';
     } catch {
       return '';
     }

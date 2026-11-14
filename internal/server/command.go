@@ -1,4 +1,4 @@
-// Copyright (C) 2026 The go-matter-hub Authors. All rights reserved.
+// Copyright (C) 2026 The homewire Authors. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,8 +18,8 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/cybergarage/go-matter-hub/internal/hub"
 	"github.com/cybergarage/go-matter/matter/datamodel/command"
+	"github.com/cybergarage/homewire/internal/hub"
 )
 
 // maxEndpoint is the largest endpoint ID. 7.18.2.18. Endpoint ID.
