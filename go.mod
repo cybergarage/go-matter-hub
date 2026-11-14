@@ -2,11 +2,11 @@ module github.com/cybergarage/go-matter-hub
 
 go 1.25.0
 
-require github.com/cybergarage/go-matter v0.9.2-0.20261113232834-cea831672b08
+require github.com/cybergarage/go-matter v0.9.2
 
 require (
 	github.com/cpuguy83/go-md2man/v2 v2.0.6 // indirect
-	github.com/cybergarage/go-ble v0.9.0 // indirect
+	github.com/cybergarage/go-ble v0.9.1 // indirect
 	github.com/cybergarage/go-logger v1.4.0 // indirect
 	github.com/cybergarage/go-mdns v1.0.0 // indirect
 	github.com/cybergarage/go-safecast v1.3.5 // indirect
