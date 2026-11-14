@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/cybergarage/go-logger v1.4.0
-	github.com/cybergarage/go-matter v0.9.4
+	github.com/cybergarage/go-matter v0.9.5
 )
 
 require (
