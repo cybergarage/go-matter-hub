@@ -21,7 +21,7 @@ Automation and remote access are out of scope for now.
 
 ## Build and run
 
-Go 1.25 or later, and Node.js 22 or later with npm. The hub depends on go-matter v0.9.3.
+Go 1.25 or later, and Node.js 22 or later with npm. The hub depends on go-matter v0.9.4.
 
 ```sh
 make build        # builds web/dist, then bin/go-matter-hub
