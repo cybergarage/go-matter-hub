@@ -48,6 +48,9 @@ type Controller interface {
 	// ErrDeviceNotFound, ErrWiFiRequired or ErrNotInCommissioningMode
 	// where they apply.
 	Commission(ctx context.Context, payload encoding.OnboardingPayload, wifi *WiFiCredentials) (NodeRecord, error)
+	// Forget deletes the record the store keeps of a node. A node of which
+	// there is no record is not an error.
+	Forget(nodeID uint64) error
 }
 
 // Fabric identifies the fabric of the hub.
@@ -76,6 +79,10 @@ type Session interface {
 	// Invoke invokes a command with its encoded CommandFields structure,
 	// and returns the status the node answered with.
 	Invoke(endpoint uint16, cluster, command uint32, fields []byte) (InvokeStatus, error)
+	// RemoveFabric removes the hub's fabric from the node, which then
+	// ends the session. A node which no longer has the fabric is not an
+	// error. 11.18.6.12. RemoveFabric Command.
+	RemoveFabric() error
 	// Close closes the session and its subscriptions.
 	Close() error
 }

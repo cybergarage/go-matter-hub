@@ -73,12 +73,21 @@ func onOffValue(n Node) (value any, ok bool) {
 // the test ends. It skips the test where the device cannot advertise.
 func startLight(t *testing.T) *cluster.OnOff {
 	t.Helper()
+	light, _ := startLightWithStore(t)
+	return light
+}
+
+// startLightWithStore is startLight, which also returns the store of the
+// light, with its fabrics.
+func startLightWithStore(t *testing.T) (*cluster.OnOff, store.DeviceStore) {
+	t.Helper()
+	deviceStore := store.NewMemDeviceStore()
 	attestation, err := testcreds.AttestationProvider()
 	if err != nil {
 		t.Fatal(err)
 	}
 	dev, err := device.New(
-		device.WithDeviceStore(store.NewMemDeviceStore()),
+		device.WithDeviceStore(deviceStore),
 		device.WithPasscode(types.Passcode(lightPasscode)),
 		device.WithAddress(":0"),
 		device.WithDiscriminator(lightDiscriminator),
@@ -99,12 +108,12 @@ func startLight(t *testing.T) *cluster.OnOff {
 		t.Skipf("the device cannot advertise here: %v", err)
 	}
 	t.Cleanup(func() { _ = dev.Stop() })
-	return light
+	return light, deviceStore
 }
 
 // TestHubCommissionsAGoMatterLight commissions go-matter's On/Off Light from
-// the hub itself, over IP, into a fabric the hub creates, and follows the
-// new node without a restart.
+// the hub itself, over IP, into a fabric the hub creates, follows the new
+// node without a restart, and then removes it.
 func TestHubCommissionsAGoMatterLight(t *testing.T) {
 	if testing.Short() {
 		t.Skip("uses mDNS on the network; skipped with -short")
@@ -121,7 +130,15 @@ func TestHubCommissionsAGoMatterLight(t *testing.T) {
 		t.Skipf("the hub cannot start here: %v", err)
 	}
 	defer func() { _ = h.Stop() }()
-	light := startLight(t)
+	light, lightStore := startLightWithStore(t)
+	fabrics := func() int {
+		t.Helper()
+		recs, err := lightStore.ListDeviceFabrics()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(recs)
+	}
 
 	job, err := h.StartCommissioning(lightPairingCode, nil)
 	if err != nil {
@@ -180,6 +197,25 @@ func TestHubCommissionsAGoMatterLight(t *testing.T) {
 	again := waitJob()
 	if again.State != CommissioningFailed || (again.ErrorCode != "not_found" && again.ErrorCode != "not_in_commissioning_mode") {
 		t.Fatalf("second commissioning = %+v", again)
+	}
+
+	// Removing the node takes the fabric off the light itself, and the
+	// hub forgets the node.
+	if n := fabrics(); n != 1 {
+		t.Fatalf("the light has %d fabrics before the removal, want 1", n)
+	}
+	removal, err := h.RemoveNode(done.NodeID, false)
+	if err != nil || !removal.FromDevice {
+		t.Fatalf("RemoveNode() = %+v, %v", removal, err)
+	}
+	if _, ok := h.Node(done.NodeID); ok {
+		t.Fatal("the node is still listed")
+	}
+	if nodes, err := ctl.Nodes(); err != nil || len(nodes) != 0 {
+		t.Fatalf("records after the removal = %v, %v", nodes, err)
+	}
+	if n := fabrics(); n != 0 {
+		t.Fatalf("the light has %d fabrics after the removal, want 0", n)
 	}
 }
 

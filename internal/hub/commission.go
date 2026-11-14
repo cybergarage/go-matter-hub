@@ -182,10 +182,13 @@ func (h *Hub) addNodeLocked(rec NodeRecord) *nodeWorker {
 	}
 	w := newNodeWorker(h, rec)
 	h.nodes[rec.NodeID] = w
-	ctx := h.ctx
+	ctx, stop := context.WithCancel(h.ctx)
+	w.stop = stop
 	h.wg.Add(1)
 	go func() {
 		defer h.wg.Done()
+		defer close(w.done)
+		defer stop()
 		w.run(ctx)
 	}()
 	return w

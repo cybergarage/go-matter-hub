@@ -32,6 +32,13 @@ var errSubscriptionEnded = errors.New("the subscription ended")
 type nodeWorker struct {
 	hub *Hub
 	rec NodeRecord
+	// stop ends the worker, and done is closed once it has ended, its
+	// session closed.
+	stop context.CancelFunc
+	done chan struct{}
+	// removing is set, under the hub's lock, while the node is being
+	// removed, so that it is removed once.
+	removing bool
 
 	// reportMu orders the reports and status changes of the node, so that
 	// the listeners are told of them in the order they happened.
@@ -53,6 +60,8 @@ func newNodeWorker(h *Hub, rec NodeRecord) *nodeWorker {
 		rec:    rec,
 		status: StatusConnecting,
 		attrs:  map[AttributePath]Attribute{},
+		stop:   func() {},
+		done:   make(chan struct{}),
 	}
 }
 

@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/cybergarage/go-matter/matter"
+	"github.com/cybergarage/go-matter/matter/cluster/operationalcredentials"
 	"github.com/cybergarage/go-matter/matter/config"
 	"github.com/cybergarage/go-matter/matter/credentials"
 	"github.com/cybergarage/go-matter/matter/encoding"
@@ -265,6 +266,18 @@ func (c *MatterController) Connect(ctx context.Context, nodeID uint64) (Session,
 	return &matterSession{node: node, paths: c.paths}, nil
 }
 
+// Forget deletes the store's record of a node of the fabric.
+func (c *MatterController) Forget(nodeID uint64) error {
+	fabric, ok, err := c.Fabric()
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errors.New("the store has no fabric")
+	}
+	return c.st.DeleteCommissionee(fabric.CompressedFabricID, nodeID)
+}
+
 type matterSession struct {
 	node  matter.Node
 	paths []im.AttributeRequestPath
@@ -280,6 +293,26 @@ func (s *matterSession) Invoke(endpoint uint16, cluster, command uint32, fields 
 	}
 	return InvokeStatus{IMStatus: res.Status.IMStatus, ClusterStatus: res.Status.ClusterStatus}, nil
 }
+
+// RemoveFabric reads the index of the session's fabric on the node and
+// removes that fabric. 11.18.6.7. CurrentFabricIndex Attribute, 11.18.6.12.
+// RemoveFabric Command.
+func (s *matterSession) RemoveFabric() error {
+	sess := s.node.Session()
+	index, err := operationalcredentials.CurrentFabricIndex(sess, rootEndpoint)
+	if err != nil {
+		return err
+	}
+	err = operationalcredentials.RemoveFabric(sess, rootEndpoint, index)
+	if errors.Is(err, operationalcredentials.ErrInvalidFabricIndex) {
+		return nil
+	}
+	return err
+}
+
+// rootEndpoint is the endpoint of the node-wide clusters. 9.2. Endpoint
+// Composition.
+const rootEndpoint im.EndpointID = 0
 
 // SubscribeAll subscribes to every attribute of every endpoint with a
 // wildcard path. 8.5. Subscribe Interaction.

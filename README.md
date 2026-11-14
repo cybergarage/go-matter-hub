@@ -65,6 +65,14 @@ The hub adds one device at a time, for up to three minutes. Once commissioned, t
 
 Neither the setup code nor the Wi-Fi password is logged or reported back by the API, at any log level: the hex dumps go-matter makes of the messages it sends and receives, which may hold them, are never logged.
 
+## Removing a device
+
+**Remove device…** under a device's attributes removes it, after a confirmation. The hub sends the device RemoveFabric over its session with it, so the device itself leaves the hub's fabric; then the hub stops following it and deletes its record (`commissions/` in the data directory).
+
+A device which is offline, or which does not leave the fabric, is not removed. The hub can then forget it anyway (**Remove from the hub only**): the device keeps the hub's fabric until it is reset to factory defaults, which it needs before it can be added again.
+
+To add a removed device again, put it into pairing mode, or reset it to factory defaults.
+
 ## Access control
 
 By default the hub listens on the loopback interface only, and needs no sign-in: only programs on the same host can reach it.
@@ -110,6 +118,7 @@ All paths are under `/api/v1`. Errors are `{"error": {"code": "...", "message": 
 | `GET /nodes/{id}` | Token | One node |
 | `GET /events` | Token | The state of the nodes as Server-Sent Events; see below |
 | `POST /nodes/{id}/commands` | Token | Invokes a command on a node; see below |
+| `DELETE /nodes/{id}` | Token | Removes a node; see below |
 | `POST /commissioning` | Token | Starts adding a device; see below |
 | `GET /commissioning` | Token | `{"commissioning": commissioning}`, the latest one, or `null` |
 | `GET /hub` | Token | `{"version": "...", "authRequired": bool, "fabricId": "<16 hex digits>", "nodes": {"total": n, "online": n}}` |
@@ -144,6 +153,7 @@ A node:
 | `status` | `{"node": id, "status": "...", "error": "..."}` | A node's status changed |
 | `attributes` | `{"node": id, "priming": bool, "attributes": [...]}` | Attributes changed. With `priming` true they are the whole state of the node and replace what the client holds |
 | `node` | node | A node joined the hub |
+| `removed` | `{"node": id}` | A node was removed from the hub |
 | `commissioning` | `{"commissioning": commissioning}` | A commissioning started or ended |
 
 A comment line is sent every 15 seconds on an idle stream. A client which falls 256 events behind is disconnected; it connects again and starts from a fresh `nodes` event.
@@ -202,6 +212,18 @@ curl -X POST -H 'Content-Type: application/json' \
 | 400 | `invalid_code` | The setup code is malformed, or has a checksum or passcode which is not valid |
 | 400 | `invalid_wifi` | The SSID is empty or longer than 32 bytes, or the password is not 8 to 63 characters or 64 hexadecimal digits |
 | 409 | `busy` | Another device is being added |
+| 503 | `not_ready` | The hub has not started |
+
+### Removing a node
+
+`DELETE /nodes/{id}` removes a node from the fabric and from the hub, and answers `{"fromDevice": true}`. With `?local=true`, a node which is offline or fails to leave the fabric is forgotten anyway, and the answer is `{"fromDevice": false}`: the device still holds the fabric. The clients are told with a `removed` event.
+
+| Status | Code | Meaning |
+| --- | --- | --- |
+| 404 | `not_found` | No such node |
+| 409 | `node_offline` | The node is offline, so it cannot leave the fabric; retry with `?local=true` to forget it |
+| 409 | `busy` | The node is being removed already |
+| 502 | `remove_failed` | The node did not leave the fabric; retry with `?local=true` to forget it |
 | 503 | `not_ready` | The hub has not started |
 
 ## Development
