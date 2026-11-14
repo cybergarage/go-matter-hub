@@ -249,9 +249,27 @@ type fakeHub struct {
 	invoked   []invoked
 	invokeErr error
 
+	removed   []removeCall
+	removeErr error
+
 	commissioning *hub.Commissioning
 	commissions   []commissionCall
 	commissionErr error
+}
+
+type removeCall struct {
+	id    uint64
+	local bool
+}
+
+func (h *fakeHub) RemoveNode(id uint64, local bool) (hub.Removal, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.removed = append(h.removed, removeCall{id, local})
+	if h.removeErr != nil && !local {
+		return hub.Removal{}, h.removeErr
+	}
+	return hub.Removal{FromDevice: h.removeErr == nil}, nil
 }
 
 type commissionCall struct {

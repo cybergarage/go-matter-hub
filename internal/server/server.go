@@ -64,6 +64,9 @@ type HubState interface {
 	Listen(fn func(hub.Change)) (remove func())
 	// Invoke invokes a command on a node.
 	Invoke(nodeID uint64, c hub.Command) error
+	// RemoveNode removes a node from the fabric and from the hub; local
+	// forgets a node which cannot leave the fabric.
+	RemoveNode(nodeID uint64, local bool) (hub.Removal, error)
 	// StartCommissioning starts commissioning a device with a setup code;
 	// wifi is nil for a device which is on the network already.
 	StartCommissioning(code string, wifi *hub.WiFiCredentials) (hub.Commissioning, error)
@@ -100,6 +103,7 @@ func New(cfg Config) *Server {
 	mux.Handle("GET /api/v1/hub", s.protected(s.handleHub))
 	mux.Handle("GET /api/v1/nodes", s.protected(s.handleNodes))
 	mux.Handle("GET /api/v1/nodes/{id}", s.protected(s.handleNode))
+	mux.Handle("DELETE /api/v1/nodes/{id}", s.protected(s.handleRemoveNode))
 	mux.Handle("GET /api/v1/events", s.protected(s.handleEvents))
 	mux.Handle("POST /api/v1/nodes/{id}/commands", s.protected(s.handleCommand))
 	mux.Handle("GET /api/v1/commissioning", s.protected(s.handleCommissioning))

@@ -77,6 +77,8 @@ const (
 	// ChangeCommissioning is the progress of a commissioning, in
 	// Commissioning.
 	ChangeCommissioning ChangeKind = "commissioning"
+	// ChangeNodeRemoved is a node which was removed from the hub.
+	ChangeNodeRemoved ChangeKind = "removed"
 )
 
 // Change is told to the listeners of a hub when the state of a node changes.

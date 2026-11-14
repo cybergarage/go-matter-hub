@@ -91,6 +91,8 @@ export interface EventHandlers {
   attributes(event: AttributesEvent): void;
   /** A node which joined the hub. */
   node(node: MatterNode): void;
+  /** The ID of a node which was removed from the hub. */
+  removed(id: string): void;
   /** The progress of a commissioning. */
   commissioning(commissioning: Commissioning): void;
   /** The stream is connected (true) or is trying to connect again (false). */
@@ -149,6 +151,7 @@ export function openEvents(handlers: EventHandlers): () => void {
   on<StatusEvent>('status', (data) => handlers.status(data));
   on<AttributesEvent>('attributes', (data) => handlers.attributes(data));
   on<MatterNode>('node', (data) => handlers.node(data));
+  on<{ node: string }>('removed', (data) => handlers.removed(data.node));
   on<{ commissioning: Commissioning }>('commissioning', (data) => handlers.commissioning(data.commissioning));
   source.onopen = () => handlers.connection(true);
   source.onerror = () => handlers.connection(false);
@@ -186,3 +189,20 @@ export const startCommissioning = (code: string, wifi?: WiFiCredentials) =>
 
 /** The latest commissioning, or null when there has been none. */
 export const getCommissioning = () => request<{ commissioning: Commissioning | null }>('GET', '/commissioning');
+
+/** How a node was removed. */
+export interface Removal {
+  /**
+   * True when the device left the hub's fabric. False when only the hub
+   * forgot it: the device keeps the fabric until it is reset.
+   */
+  fromDevice: boolean;
+}
+
+/**
+ * Removes a node: the device leaves the hub's fabric, and the hub forgets
+ * it. With local, a device which is offline or fails to leave is forgotten
+ * anyway. The clients are told with a "removed" event.
+ */
+export const removeNode = (id: string, local = false) =>
+  request<Removal>('DELETE', `/nodes/${id}${local ? '?local=true' : ''}`);

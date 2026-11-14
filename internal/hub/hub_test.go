@@ -42,6 +42,8 @@ type fakeController struct {
 	// commissionResults answers the commissionings.
 	commissionResults chan commissionResult
 	commissions       []commissionCall
+	forgotten         []uint64
+	forgetErr         error
 }
 
 func newFakeController(records ...NodeRecord) *fakeController {
@@ -131,6 +133,23 @@ func (c *fakeController) Commission(ctx context.Context, payload encoding.Onboar
 	}
 }
 
+func (c *fakeController) Forget(nodeID uint64) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.forgetErr != nil {
+		return c.forgetErr
+	}
+	c.forgotten = append(c.forgotten, nodeID)
+	kept := c.records[:0]
+	for _, r := range c.records {
+		if r.NodeID != nodeID {
+			kept = append(kept, r)
+		}
+	}
+	c.records = kept
+	return nil
+}
+
 type commissionCall struct {
 	discriminator uint16
 	wifi          *WiFiCredentials
@@ -163,6 +182,20 @@ type fakeSession struct {
 	invokes   []invokeCall
 	answer    InvokeStatus
 	invokeErr error
+	removed   int
+	removeErr error
+}
+
+// RemoveFabric ends the session, as a node which left the fabric does.
+func (s *fakeSession) RemoveFabric() error {
+	s.mu.Lock()
+	s.removed++
+	err := s.removeErr
+	s.mu.Unlock()
+	if err == nil {
+		s.end(errors.New("the node left the fabric"))
+	}
+	return err
 }
 
 type invokeCall struct {

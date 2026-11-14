@@ -18,6 +18,14 @@
   // null until the stream has delivered the nodes once.
   let live = $state<boolean | null>(null);
   let commissioning = $state<Commissioning | null>(null);
+  // What the hub said after this page removed a device.
+  let notice = $state('');
+
+  function removed(name: string, fromDevice: boolean) {
+    notice = fromDevice
+      ? `${name} was removed. To add it again, put it into pairing mode, or reset it to factory defaults.`
+      : `${name} was removed from the hub only. It still holds the hub's fabric: reset it to factory defaults before adding it again.`;
+  }
   let closeEvents: (() => void) | null = null;
 
   function stopEvents() {
@@ -46,6 +54,7 @@
       status: (event) => (nodes = withStatus(nodes, event)),
       attributes: (event) => (nodes = withAttributes(nodes, event)),
       node: (node) => (nodes = withNode(nodes, node)),
+      removed: (id) => (nodes = nodes.filter((n) => n.id !== id)),
       commissioning: (c) => (commissioning = c),
       connection: (open) => {
         if (open) {
@@ -193,6 +202,12 @@
         return node ? nodeName(node) : `Node ${id}`;
       }}
     />
+    {#if notice}
+      <section class="card notice" role="status">
+        <p>{notice}</p>
+        <button class="dismiss" onclick={() => (notice = '')}>Dismiss</button>
+      </section>
+    {/if}
     {#if live === null}
       <p class="muted">Loading devices…</p>
     {:else if nodes.length === 0}
@@ -202,7 +217,7 @@
     {:else}
       <div class="devices">
         {#each nodes as node (node.id)}
-          <DeviceCard {node} />
+          <DeviceCard {node} onremoved={removed} />
         {/each}
       </div>
     {/if}
@@ -314,6 +329,28 @@
     /* minmax(0, …) lets a card be narrower than a wide table inside it. */
     grid-template-columns: minmax(0, 1fr);
     gap: 0.9rem;
+  }
+
+  .notice {
+    margin-bottom: 0.9rem;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .notice p {
+    margin: 0;
+  }
+
+  .dismiss {
+    flex: none;
+    padding: 0.3rem 0.6rem;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text);
+    cursor: pointer;
   }
 
   .muted.last {
