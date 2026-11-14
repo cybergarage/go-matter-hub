@@ -1,4 +1,4 @@
-BIN := bin/go-matter-hub
+BIN := bin/homewire
 PKG := ./...
 
 .PHONY: all web check-web build test run clean
@@ -13,7 +13,7 @@ check-web:
 	cd web && npm ci && npm run check
 
 build: web
-	go build -o $(BIN) ./cmd/go-matter-hub
+	go build -o $(BIN) ./cmd/homewire
 
 test:
 	test -z "$$(gofmt -l .)"
@@ -21,7 +21,7 @@ test:
 	go test -race -count=1 $(PKG)
 
 run: build
-	$(BIN)
+	$(BIN) serve
 
 clean:
 	rm -rf bin web/node_modules

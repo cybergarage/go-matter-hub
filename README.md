@@ -1,8 +1,8 @@
-# go-matter-hub
+# homewire
 
-A Matter hub built on [go-matter](https://github.com/cybergarage/go-matter): a controller which stays up, with a web UI and an HTTP API.
+homewire is a Matter hub built on [go-matter](https://github.com/cybergarage/go-matter): a controller which stays up, with a web UI and an HTTP API. It adds Matter devices, over Bluetooth or the network, and controls them, from a host on the home network.
 
-One executable holds the daemon and the web UI. It is meant to run on a host on the home network, and to be used from a browser on another machine.
+One executable, `homewire`, holds the daemon and the web UI. It was named go-matter-hub before. It is meant to run on a host on the home network, and to be used from a browser on another machine.
 
 ## Status
 
@@ -24,19 +24,27 @@ Automation and remote access are out of scope for now.
 Go 1.25 or later, and Node.js 22 or later with npm. The hub depends on go-matter v0.9.5.
 
 ```sh
-make build        # builds web/dist, then bin/go-matter-hub
-bin/go-matter-hub # http://127.0.0.1:8580
+make build             # builds web/dist, then bin/homewire
+bin/homewire serve     # http://127.0.0.1:8580
 ```
+
+Always build with `make build`: a plain `go build` embeds whatever is left in `web/dist`, which may be an older UI.
+
+| Command | Does |
+| --- | --- |
+| `homewire serve` | Runs the hub: the controller, its web UI and its HTTP API |
+| `homewire version` | Prints the version |
+
+`homewire serve` takes these options:
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `-listen` | `127.0.0.1:8580` | Address to listen on |
-| `-data-dir` | `~/.go-matter-hub` | Directory for the hub's fabric, its commissioned nodes and the access token |
+| `-data-dir` | `~/.homewire` | Directory for the hub's fabric, its commissioned nodes and the access token. When only `~/.go-matter-hub` exists, the data directory from before the hub was named homewire, that one is used, with a warning: rename it to `~/.homewire` |
 | `-vendor-id` | `0xFFF1` | Administrator vendor ID of the fabric the hub creates at its first start |
 | `-log-level` | `info` | `debug`, `info`, `warn` or `error`. go-matter's own messages are logged with `component=go-matter`: all of them at `debug` (each step of commissioning and of each session), only its warnings and errors otherwise |
 | `-allowed-host` | | Host name by which browsers may reach the hub; repeatable |
 | `-require-auth` | off | Require the access token on the loopback interface too |
-| `-version` | | Print the version |
 
 ## Fabric and nodes
 
@@ -80,7 +88,7 @@ By default the hub listens on the loopback interface only, and needs no sign-in:
 To use it from other machines, listen on a network address:
 
 ```sh
-bin/go-matter-hub -listen 0.0.0.0:8580
+bin/homewire serve -listen 0.0.0.0:8580
 ```
 
 The hub then always requires its **access token**. This cannot be turned off.
@@ -92,7 +100,7 @@ The hub then always requires its **access token**. This cannot be turned off.
 - To replace the token, delete the file and restart the hub.
 
 ```sh
-curl -H "Authorization: Bearer $(cat ~/.go-matter-hub/token)" http://192.168.1.20:8580/api/v1/hub
+curl -H "Authorization: Bearer $(cat ~/.homewire/token)" http://192.168.1.20:8580/api/v1/hub
 ```
 
 Two checks apply whether or not the token is required. They stop a web page on another site from using the browser of someone on the home network to reach the hub:
@@ -234,7 +242,7 @@ go test -short ./...  # without the test which needs mDNS on the network
 make check-web  # svelte-check
 
 # UI with hot reload on http://localhost:5173, against a hub on its default address
-go run ./cmd/go-matter-hub &
+go run ./cmd/homewire serve &
 cd web && npm install && npm run dev
 ```
 
@@ -245,7 +253,7 @@ The Go binary embeds `web/dist`. Without a built UI the hub still builds and ser
 Check this repository out next to go-matter and add it to the Go workspace of the parent directory, so that a build here uses the go-matter sources beside it:
 
 ```sh
-cd .. && go work use ./go-matter-hub
+cd .. && go work use ./homewire
 ```
 
 CI and releases do not use the workspace: they build against the go-matter version in `go.mod`. Before opening a pull request, check that the hub also builds that way:
@@ -258,7 +266,7 @@ GOWORK=off go build ./... && GOWORK=off go test ./...
 
 | Path | Role |
 | --- | --- |
-| `cmd/go-matter-hub` | The daemon: flags, listener, shutdown |
+| `cmd/homewire` | The command: `serve` (the daemon: flags, listener, shutdown) and the other subcommands |
 | `internal/hub` | The hub: its fabric, the sessions and subscriptions with the nodes, their state, and the commands sent to them |
 | `internal/auth` | Access token file, bearer and session authentication |
 | `internal/server` | HTTP API, event stream, Host and Origin checks, web UI serving |

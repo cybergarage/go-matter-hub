@@ -1,4 +1,4 @@
-// Copyright (C) 2026 The go-matter-hub Authors. All rights reserved.
+// Copyright (C) 2026 The homewire Authors. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -29,9 +29,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cybergarage/go-matter-hub/internal/auth"
-	"github.com/cybergarage/go-matter-hub/internal/hub"
-	"github.com/cybergarage/go-matter-hub/internal/version"
+	"github.com/cybergarage/homewire/internal/auth"
+	"github.com/cybergarage/homewire/internal/hub"
+	"github.com/cybergarage/homewire/internal/version"
 )
 
 const maxBodyBytes = 1 << 16
@@ -139,7 +139,7 @@ func securityHeaders(next http.Handler) http.Handler {
 func (s *Server) protected(next http.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !s.auth.Authenticated(r) {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="go-matter-hub"`)
+			w.Header().Set("WWW-Authenticate", `Bearer realm="homewire"`)
 			writeError(w, http.StatusUnauthorized, "unauthorized", "sign in with the access token")
 			return
 		}
@@ -276,7 +276,7 @@ func (s *Server) handleHub(w http.ResponseWriter, _ *http.Request) {
 
 const uiMissing = `<!doctype html>
 <meta charset="utf-8">
-<title>go-matter-hub</title>
+<title>homewire</title>
 <p>The web UI is not part of this build. Run <code>make web</code>, then build the hub again.</p>
 `
 
