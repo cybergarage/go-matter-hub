@@ -94,10 +94,10 @@ bin/homewire serve -listen 0.0.0.0:8580
 The hub then always requires its **access token**. This cannot be turned off.
 
 - The token is created at the first start, 256 random bits, in `<data-dir>/token` with mode 0600. The hub logs the path of the file, never the token. A token file other users can read is refused.
-- **Browser**: enter the token once on the sign-in page. The hub sets a session cookie (`HttpOnly`, `SameSite=Strict`) valid for 30 days. Sessions are kept in memory, so restarting the hub signs every browser out.
+- **Browser**: enter the token once on the sign-in page. The hub sets a session cookie (`HttpOnly`, `SameSite=Strict`) valid for 30 days. The hub signs the session with a key derived from the token instead of keeping it, so a session outlasts a restart of the hub. Signing out refuses that session until the hub restarts.
 - **Scripts**: send `Authorization: Bearer <token>`.
 - After 10 wrong tokens within a minute, sign-in is refused for the rest of that minute.
-- To replace the token, delete the file and restart the hub.
+- To replace the token, delete the file and restart the hub. That also ends every browser session.
 
 ```sh
 curl -H "Authorization: Bearer $(cat ~/.homewire/token)" http://192.168.1.20:8580/api/v1/hub
