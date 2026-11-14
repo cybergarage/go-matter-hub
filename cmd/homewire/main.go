@@ -13,8 +13,8 @@
 // limitations under the License.
 
 // Command homewire is a Matter hub: a controller which stays up, with a web
-// UI and an HTTP API. "homewire serve" runs it; the other commands work with
-// a hub which runs.
+// UI and an HTTP API. "homewire serve" runs it; open, status and token work
+// with the hub which runs with the same data directory.
 package main
 
 import (
@@ -49,6 +49,9 @@ type command struct {
 func commands() []command {
 	return []command{
 		{"serve", "run the hub: the controller, its web UI and its HTTP API", serve},
+		{"open", "open the web UI of the running hub in a browser, signed in", openCommand},
+		{"status", "print the state of the running hub and of its nodes", statusCommand},
+		{"token", "print the access token, for scripts which call the API", tokenCommand},
 		{"version", "print the version", func([]string) error {
 			fmt.Println(version.Version)
 			return nil

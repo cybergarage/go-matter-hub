@@ -34,8 +34,13 @@ const (
 	// SessionLifetime is how long a browser session lasts.
 	SessionLifetime = 30 * 24 * time.Hour
 
+	// SignInCodeLifetime is how long a one-time sign-in code can be used.
+	SignInCodeLifetime = time.Minute
+
 	// maxRevoked bounds the sessions signed out before they expire.
-	maxRevoked        = 1024
+	maxRevoked = 1024
+	// maxSignInCodes bounds the sign-in codes not used yet.
+	maxSignInCodes    = 16
 	maxLoginFailures  = 10
 	loginFailureFrame = time.Minute
 
@@ -72,6 +77,7 @@ type Authenticator struct {
 
 	mu       sync.Mutex
 	revoked  map[string]time.Time // session ID → expiry
+	codes    map[string]time.Time // sign-in code digest → expiry
 	failures []time.Time
 	now      func() time.Time
 }
@@ -85,6 +91,7 @@ func NewAuthenticator(token string, required bool) *Authenticator {
 		digest:   sha256.Sum256([]byte(token)),
 		key:      sessionKey(token),
 		revoked:  map[string]time.Time{},
+		codes:    map[string]time.Time{},
 		now:      time.Now,
 	}
 }
@@ -249,4 +256,65 @@ func (a *Authenticator) revoke(id string, expiry time.Time) {
 		delete(a.revoked, first)
 	}
 	a.revoked[id] = expiry
+}
+
+// NewSignInCode returns a one-time sign-in code: a browser which brings it
+// back within SignInCodeLifetime, once, is signed in without the token.
+// Only a caller authenticated with the token is to be given one; the
+// "homewire open" command opens a browser with it, so that nobody types
+// or copies the token.
+func (a *Authenticator) NewSignInCode() (code string, expiry time.Time, err error) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", time.Time{}, err
+	}
+	code = base64.RawURLEncoding.EncodeToString(raw)
+	now := a.now()
+	expiry = now.Add(SignInCodeLifetime)
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for k, e := range a.codes {
+		if !now.Before(e) {
+			delete(a.codes, k)
+		}
+	}
+	for len(a.codes) >= maxSignInCodes {
+		first, firstExpiry := "", time.Time{}
+		for k, e := range a.codes {
+			if first == "" || e.Before(firstExpiry) {
+				first, firstExpiry = k, e
+			}
+		}
+		delete(a.codes, first)
+	}
+	a.codes[codeKey(code)] = expiry
+	return code, expiry, nil
+}
+
+// RedeemSignInCode starts a browser session, setting its cookie on w, when
+// code is a sign-in code which has not expired or been used; the code is
+// used up either way.
+func (a *Authenticator) RedeemSignInCode(w http.ResponseWriter, r *http.Request, code string) (bool, error) {
+	if code == "" {
+		return false, nil
+	}
+	key := codeKey(code)
+	a.mu.Lock()
+	expiry, ok := a.codes[key]
+	delete(a.codes, key)
+	a.mu.Unlock()
+	if !ok || !a.now().Before(expiry) {
+		return false, nil
+	}
+	if err := a.startSession(w, r); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// codeKey is how a sign-in code is kept: its digest, so that the table
+// holds nothing which signs anybody in.
+func codeKey(code string) string {
+	d := sha256.Sum256([]byte(code))
+	return base64.RawURLEncoding.EncodeToString(d[:])
 }
