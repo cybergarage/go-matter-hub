@@ -198,6 +198,14 @@ func serve(args []string) error {
 	}
 	slog.Info("homewire started", "version", version.Version, "url", "http://"+ln.Addr().String())
 
+	// Where the other commands find the hub.
+	info := newServeInfo(ln.Addr(), authRequired)
+	if err := writeServeInfo(o.dataDir, info); err != nil {
+		slog.Warn("could not record where the hub listens; homewire open and status will not find it", "error", err)
+	} else {
+		defer removeServeInfo(o.dataDir, info)
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 

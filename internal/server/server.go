@@ -99,8 +99,10 @@ func New(cfg Config) *Server {
 	mux.HandleFunc("GET /api/v1/session", s.handleSessionStatus)
 	mux.HandleFunc("POST /api/v1/session", s.handleLogin)
 	mux.HandleFunc("DELETE /api/v1/session", s.handleLogout)
+	mux.HandleFunc("GET /signin", s.handleSignInLink)
 	// Protected.
 	mux.Handle("GET /api/v1/hub", s.protected(s.handleHub))
+	mux.Handle("POST /api/v1/session/codes", s.protected(s.handleNewSignInCode))
 	mux.Handle("GET /api/v1/nodes", s.protected(s.handleNodes))
 	mux.Handle("GET /api/v1/nodes/{id}", s.protected(s.handleNode))
 	mux.Handle("DELETE /api/v1/nodes/{id}", s.protected(s.handleRemoveNode))

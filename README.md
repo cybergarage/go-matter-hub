@@ -33,7 +33,12 @@ Always build with `make build`: a plain `go build` embeds whatever is left in `w
 | Command | Does |
 | --- | --- |
 | `homewire serve` | Runs the hub: the controller, its web UI and its HTTP API |
+| `homewire open` | Opens the web UI of the running hub in a browser, signed in; see [Signing a browser in](#signing-a-browser-in) |
+| `homewire status` | Prints the state of the running hub and of its nodes |
+| `homewire token` | Prints the access token, for scripts which call the API |
 | `homewire version` | Prints the version |
+
+`open`, `status` and `token` take `-data-dir` too, and find the running hub through `serve.json`, which `homewire serve` writes into the data directory while it runs.
 
 `homewire serve` takes these options:
 
@@ -94,7 +99,7 @@ bin/homewire serve -listen 0.0.0.0:8580
 The hub then always requires its **access token**. This cannot be turned off.
 
 - The token is created at the first start, 256 random bits, in `<data-dir>/token` with mode 0600. The hub logs the path of the file, never the token. A token file other users can read is refused.
-- **Browser**: enter the token once on the sign-in page. The hub sets a session cookie (`HttpOnly`, `SameSite=Strict`) valid for 30 days. The hub signs the session with a key derived from the token instead of keeping it, so a session outlasts a restart of the hub. Signing out refuses that session until the hub restarts.
+- **Browser**: run `homewire open`, or enter the token once on the sign-in page. The hub sets a session cookie (`HttpOnly`, `SameSite=Strict`) valid for 30 days. The hub signs the session with a key derived from the token instead of keeping it, so a session outlasts a restart of the hub. Signing out refuses that session until the hub restarts.
 - **Scripts**: send `Authorization: Bearer <token>`.
 - After 10 wrong tokens within a minute, sign-in is refused for the rest of that minute.
 - To replace the token, delete the file and restart the hub. That also ends every browser session.
@@ -112,6 +117,21 @@ Two checks apply whether or not the token is required. They stop a web page on a
 
 The hub speaks plain HTTP. On the network, the token (at sign-in and in a bearer header) and the session cookie are not encrypted, so anyone who can capture traffic between the browser and the hub can read them. Use it on a network you trust, or put it behind a TLS reverse proxy. TLS in the hub itself is not implemented.
 
+## Signing a browser in
+
+`homewire open`, run on the host of the hub as the user who runs it, opens the web UI in the default browser, already signed in: nobody types or copies the token.
+
+```sh
+homewire open                                  # a browser on this host
+homewire open -print                           # print the link instead, for a browser on another machine
+ssh hub.local homewire open -print             # the same, from that other machine
+homewire open -print -host 192.168.1.20        # name the hub by another name or address in the link
+```
+
+It reads the token from the data directory, asks the hub for a **one-time sign-in code**, and opens `/signin?code=...`. The hub exchanges the code for a session and sends the browser on to the web UI, so the code leaves the address bar. A code works once, within a minute; a link used again, or too late, leads to the sign-in page.
+
+With `-print`, the link names the hub by this host's `.local` name when the hub listens on the network; `-host` names it otherwise.
+
 ## API
 
 All paths are under `/api/v1`. Errors are `{"error": {"code": "...", "message": "..."}}`.
@@ -122,6 +142,7 @@ All paths are under `/api/v1`. Errors are `{"error": {"code": "...", "message": 
 | `GET /session` | Public | `{"authRequired": bool, "authenticated": bool}` |
 | `POST /session` | Public | Body `{"token": "..."}`; starts a browser session |
 | `DELETE /session` | Public | Ends the browser session |
+| `POST /session/codes` | Token | Issues a one-time sign-in code: `{"code", "expiresAt", "path"}`; see [Signing a browser in](#signing-a-browser-in) |
 | `GET /nodes` | Token | `{"nodes": [node, ...]}`, ordered by node ID |
 | `GET /nodes/{id}` | Token | One node |
 | `GET /events` | Token | The state of the nodes as Server-Sent Events; see below |

@@ -227,3 +227,54 @@ func TestLoadOrCreateToken(t *testing.T) {
 		t.Fatal("tokens repeat")
 	}
 }
+
+func TestSignInCode(t *testing.T) {
+	a := NewAuthenticator("secret", true)
+	now := time.Date(2026, 11, 14, 0, 0, 0, 0, time.UTC)
+	a.now = func() time.Time { return now }
+
+	code, expiry, err := a.NewSignInCode()
+	if err != nil || len(code) < 40 || !expiry.Equal(now.Add(SignInCodeLifetime)) {
+		t.Fatalf("NewSignInCode() = %q, %v, %v", code, expiry, err)
+	}
+	w := httptest.NewRecorder()
+	if ok, err := a.RedeemSignInCode(w, request(nil, ""), code); !ok || err != nil {
+		t.Fatalf("RedeemSignInCode() = %v, %v", ok, err)
+	}
+	if !a.Authenticated(request(w.Result().Cookies(), "")) {
+		t.Fatal("the session the code started is refused")
+	}
+	// Once only.
+	w = httptest.NewRecorder()
+	if ok, _ := a.RedeemSignInCode(w, request(nil, ""), code); ok || len(w.Result().Cookies()) != 0 {
+		t.Fatal("a code was used twice")
+	}
+
+	// Not after it expired, nor a code the hub did not issue.
+	code, _, _ = a.NewSignInCode()
+	now = now.Add(SignInCodeLifetime)
+	if ok, _ := a.RedeemSignInCode(httptest.NewRecorder(), request(nil, ""), code); ok {
+		t.Fatal("an expired code was accepted")
+	}
+	for _, c := range []string{"", "made-up", "secret"} {
+		if ok, _ := a.RedeemSignInCode(httptest.NewRecorder(), request(nil, ""), c); ok {
+			t.Fatalf("code %q accepted", c)
+		}
+	}
+}
+
+func TestSignInCodesAreBounded(t *testing.T) {
+	a := NewAuthenticator("secret", true)
+	first, _, _ := a.NewSignInCode()
+	for range maxSignInCodes {
+		if _, _, err := a.NewSignInCode(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(a.codes) != maxSignInCodes {
+		t.Fatalf("codes = %d", len(a.codes))
+	}
+	if ok, _ := a.RedeemSignInCode(httptest.NewRecorder(), request(nil, ""), first); ok {
+		t.Fatal("the oldest code outlived the bound")
+	}
+}
