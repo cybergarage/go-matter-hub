@@ -15,7 +15,9 @@
 package auth
 
 import (
+	"encoding/base64"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -140,15 +142,63 @@ func TestLoginIsLimitedAfterFailures(t *testing.T) {
 	}
 }
 
-func TestSessionTableIsBounded(t *testing.T) {
+// A session outlasts a restart of the hub: a new Authenticator for the same
+// token accepts it. One for another token, as after the token was
+// replaced, does not.
+func TestSessionOutlastsARestart(t *testing.T) {
 	a := NewAuthenticator("secret", true)
-	for i := 0; i < maxSessions+5; i++ {
-		if err := a.Login(httptest.NewRecorder(), request(nil, ""), "secret"); err != nil {
-			t.Fatal(err)
+	w := httptest.NewRecorder()
+	if err := a.Login(w, request(nil, ""), "secret"); err != nil {
+		t.Fatal(err)
+	}
+	cookies := w.Result().Cookies()
+
+	if !NewAuthenticator("secret", true).Authenticated(request(cookies, "")) {
+		t.Fatal("the session is refused after a restart")
+	}
+	if NewAuthenticator("replaced", true).Authenticated(request(cookies, "")) {
+		t.Fatal("the session is accepted after the token was replaced")
+	}
+}
+
+// A session is refused when any byte of it is changed, as when its expiry
+// is pushed back.
+func TestSessionIsTamperProof(t *testing.T) {
+	a := NewAuthenticator("secret", true)
+	value, _, err := a.newSession(time.Now().Add(time.Hour).Truncate(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := base64.RawURLEncoding.DecodeString(value)
+	for i := range raw {
+		forged := append([]byte(nil), raw...)
+		forged[i] ^= 0x01
+		c := []*http.Cookie{{Name: SessionCookie, Value: base64.RawURLEncoding.EncodeToString(forged)}}
+		if a.Authenticated(request(c, "")) {
+			t.Fatalf("a session changed at byte %d is accepted", i)
 		}
 	}
-	if len(a.sessions) != maxSessions {
-		t.Fatalf("sessions = %d", len(a.sessions))
+	for _, v := range []string{"", "x", value[:len(value)-2], value + "AA"} {
+		if a.Authenticated(request([]*http.Cookie{{Name: SessionCookie, Value: v}}, "")) {
+			t.Fatalf("session %q accepted", v)
+		}
+	}
+}
+
+func TestRevokedSessionsAreBounded(t *testing.T) {
+	a := NewAuthenticator("secret", true)
+	now := time.Now()
+	for i := range maxRevoked + 5 {
+		a.revoke(fmt.Sprint(i), now.Add(time.Hour+time.Duration(i)*time.Second))
+	}
+	if len(a.revoked) != maxRevoked {
+		t.Fatalf("revoked = %d", len(a.revoked))
+	}
+	// Expired ones are forgotten: two hours later, all of them are.
+	a.now = func() time.Time { return now.Add(2 * time.Hour) }
+	a.revoke("last", now.Add(3*time.Hour))
+	if len(a.revoked) != 1 {
+		t.Fatalf("revoked after they expired = %d, want 1", len(a.revoked))
 	}
 }
 
