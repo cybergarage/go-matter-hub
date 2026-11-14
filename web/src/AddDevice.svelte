@@ -91,7 +91,7 @@
     wifi_required:
       'The device was found over Bluetooth only. Choose “New device” and give the Wi-Fi network it is to join.',
     not_in_commissioning_mode:
-      'The device is on the network but not waiting to be set up. Open a pairing window for it in the app it is set up with, or reset it to factory defaults.',
+      'The device is on the network but not waiting to be set up. If another app or hub has it, open a pairing window there. Otherwise — after it was removed from this hub, or an earlier attempt failed midway — reset it to factory defaults.',
     timeout: 'The device did not finish in time. Keep it close to the hub and try again.',
     failed: 'The device could not be added. Try again; if it fails again, reset the device.',
   };
